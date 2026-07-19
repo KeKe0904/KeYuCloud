@@ -956,17 +956,44 @@ start_wizard() {
     pm2 start server.js --name rainyun-wizard --cwd "$APP_DIR/deploy/setup-wizard" 2>&1 | tail -5
   pm2 save 2>/dev/null || true
 
+  # 向导是 HTTP 服务（setup-wizard/server.js 用 app.listen 启动，非 https.createServer）
+  # 即使站点配置了 SSL，向导本身仍走 HTTP，不能用 https:// 访问，否则浏览器连接失败
   local wizard_url
   if [[ -n "$DOMAIN" ]]; then
-    if [[ "$SSL_MODE" == "letsencrypt" || "$SSL_MODE" == "custom" ]]; then
-      wizard_url="https://$DOMAIN:$WIZARD_PORT"
-    else
-      wizard_url="http://$DOMAIN:$WIZARD_PORT"
-    fi
+    wizard_url="http://$DOMAIN:$WIZARD_PORT"
   else
     local server_ip
     server_ip="$(curl -sS --max-time 5 ifconfig.me 2>/dev/null || echo 'localhost')"
     wizard_url="http://$server_ip:$WIZARD_PORT"
+  fi
+
+  # 尝试放行防火墙端口（ufw / firewall-cmd / iptables）
+  info "检查防火墙端口 $WIZARD_PORT ..."
+  if command -v ufw >/dev/null 2>&1; then
+    ufw allow "$WIZARD_PORT/tcp" >/dev/null 2>&1 && info "ufw 已放行 $WIZARD_PORT/tcp" || warn "ufw 放行失败（请手动放行）"
+  elif command -v firewall-cmd >/dev/null 2>&1; then
+    firewall-cmd --add-port="$WIZARD_PORT/tcp" --permanent >/dev/null 2>&1 && \
+      firewall-cmd --reload >/dev/null 2>&1 && info "firewall-cmd 已放行 $WIZARD_PORT/tcp" || warn "firewall-cmd 放行失败（请手动放行）"
+  elif command -v iptables >/dev/null 2>&1; then
+    iptables -C INPUT -p tcp --dport "$WIZARD_PORT" -j ACCEPT 2>/dev/null || \
+      iptables -I INPUT -p tcp --dport "$WIZARD_PORT" -j ACCEPT >/dev/null 2>&1 && info "iptables 已放行 $WIZARD_PORT/tcp" || true
+  fi
+
+  # 等待向导启动
+  sleep 2
+
+  # 本地健康检查
+  local wizard_healthy=0
+  for i in 1 2 3 4 5; do
+    if curl -sS --max-time 2 "http://127.0.0.1:$WIZARD_PORT/" >/dev/null 2>&1; then
+      wizard_healthy=1
+      info "向导服务已就绪 (本地响应正常)"
+      break
+    fi
+    sleep 1
+  done
+  if [[ $wizard_healthy -eq 0 ]]; then
+    warn "向导服务本地无响应，请检查 PM2 日志: pm2 logs rainyun-wizard --lines 30"
   fi
 
   # 从 .deploy-meta.json 读取向导令牌
@@ -1009,7 +1036,15 @@ ${C_CYAN}向导将引导你完成：${C_RESET}
 ${C_CYAN}向导完成后即可正常访问站点：${C_RESET}
   ${site_url:-http://localhost}
 
-${C_YELLOW}提示：向导端口 ${WIZARD_PORT} 需在云服务器安全组放行${C_RESET}
+${C_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}
+${C_BOLD}${C_RED}⚠️  如果无法访问向导，请检查以下三项：${C_RESET}
+${C_YELLOW}1. 云服务商安全组：放行 TCP ${WIZARD_PORT} 端口（入站规则）
+   - 阿里云/腾讯云/华为云等均需在控制台手动放行
+${C_YELLOW}2. 向导使用 HTTP 协议（不是 HTTPS）${C_RESET}
+${C_YELLOW}   - 浏览器地址栏必须输入: ${wizard_url}${C_RESET}
+${C_YELLOW}   - 不要使用 https:// 前缀，否则浏览器无法连接${C_RESET}
+${C_YELLOW}3. 本地网络/防火墙：如企业网络屏蔽了非常用端口，请换网络重试${C_RESET}
+${C_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}
 
 EOF
 }
