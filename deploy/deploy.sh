@@ -44,7 +44,7 @@ REPO_URL="${REPO_URL:-https://github.com/your-org/rainyun-reseller.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 # 端口策略（全部使用软件默认端口）：
 #   - 前端（Nginx）：80（HTTP）/ 443（HTTPS，如配置 SSL）
-#   - 后端（NestJS）：1001（仅 127.0.0.1，由 Nginx 反代）
+#   - 后端（NestJS）：3001（仅 127.0.0.1，由 Nginx 反代）
 #   - 向导（setup-wizard）：8888（仅 127.0.0.1，由 Nginx 反代 /setup-wizard/ 路径）
 #   - MySQL：3306 / Redis：6379（软件默认端口）
 WIZARD_PORT="${WIZARD_PORT:-8888}"
@@ -664,7 +664,7 @@ generate_env() {
 
 # ===== 应用 =====
 NODE_ENV=production
-PORT=1001
+PORT=3001
 CORS_ORIGIN=${site_url}
 
 # ===== MySQL 数据库 =====
@@ -828,7 +828,7 @@ configure_nginx() {
 # 端口策略（全部使用默认端口）：
 #   - 前端 HTTP：80（主入口，提供前端静态文件 + API 反代 + 向导反代）
 #   - 前端 HTTPS：443（仅 SSL_MODE != none 时启用）
-#   - 后端 NestJS：1001（仅 127.0.0.1，由本配置反代 /api/）
+#   - 后端 NestJS：3001（仅 127.0.0.1，由本配置反代 /api/）
 #   - 部署向导：8888（仅 127.0.0.1，由本配置反代 /setup-wizard/）
 server {
     listen 80;
@@ -846,9 +846,9 @@ server {
         try_files \$uri \$uri/ /index.html;
     }
 
-    # API 反向代理 → 后端 1001
+    # API 反向代理 → 后端 3001
     location /api/ {
-        proxy_pass http://127.0.0.1:1001;
+        proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -899,7 +899,7 @@ server {
     }
 
     location /api/ {
-        proxy_pass http://127.0.0.1:1001;
+        proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -1065,9 +1065,9 @@ ${C_CYAN}向导完成后即可正常访问站点：${C_RESET}
 
 ${C_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}
 ${C_BOLD}${C_RED}⚠️  如果无法访问向导，请检查以下三项：${C_RESET}
-${C_YELLOW}1. 云服务商安全组：放行 TCP ${FRONTEND_PORT} 端口（HTTP 入站规则）${C_RESET}
-${C_YELLOW}   $([ "$SSL_MODE" != "none" ] && echo "   若配置 SSL，还需放行 TCP ${FRONTEND_SSL_PORT} 端口（HTTPS）")
-${C_YELLOW}   - 向导通过 主站:${FRONTEND_PORT}/setup-wizard/ 路径访问，无需开放 ${WIZARD_PORT} 端口${C_RESET}
+${C_YELLOW}1. 云服务商安全组：放行 TCP 80 端口（HTTP 入站规则）${C_RESET}
+${C_YELLOW}   $([ "$SSL_MODE" != "none" ] && echo "   若配置 SSL，还需放行 TCP 443 端口（HTTPS）")
+${C_YELLOW}   - 向导通过 主站/setup-wizard/ 路径访问，无需开放 ${WIZARD_PORT} 端口${C_RESET}
 ${C_YELLOW}2. 确认 Nginx 已正常运行：systemctl status nginx${C_RESET}
 ${C_YELLOW}3. 确认向导进程在运行：pm2 logs rainyun-wizard --lines 20${C_RESET}
 ${C_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}

@@ -106,7 +106,7 @@ async function bootstrap() {
   const uploadsDir = path.join(process.cwd(), 'uploads');
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-  const port = config.get<number>('PORT', 1001);
+  const port = config.get<number>('PORT', 3001);
   const logger = new Logger('Bootstrap');
 
   // ===== 生产环境启动安全校验 =====

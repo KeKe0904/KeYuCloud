@@ -16,7 +16,7 @@ export class RedisService implements OnModuleDestroy {
     if (!this.client) {
       this.client = new Redis({
         host: this.config.get('REDIS_HOST', '127.0.0.1'),
-        port: this.config.get<number>('REDIS_PORT', 2008),
+        port: this.config.get<number>('REDIS_PORT', 6379),
         password: this.config.get('REDIS_PASSWORD') || undefined,
         db: this.config.get<number>('REDIS_DB', 0),
         retryStrategy: (times) => Math.min(times * 200, 2000),

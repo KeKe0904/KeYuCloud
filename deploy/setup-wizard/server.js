@@ -66,7 +66,7 @@ function readMeta() {
       dbName: 'rainyun_reseller',
       dbUser: 'rainyun',
       dbHost: '127.0.0.1',
-      dbPort: 2009,
+      dbPort: 3306,
       wizardPort: PORT,
       siteUrl: '',
     };
@@ -341,7 +341,7 @@ app.post('/api/wizard/test-db', async (req, res) => {
 
   // 允许 body 覆盖（便于二次填写）
   const host = req.body.host || meta.dbHost || '127.0.0.1';
-  const port = parseInt(req.body.port || meta.dbPort || '2009', 10);
+  const port = parseInt(req.body.port || meta.dbPort || '3306', 10);
   const user = req.body.user || meta.dbUser || 'rainyun';
   const password = req.body.password || '';
   const database = req.body.database || meta.dbName || 'rainyun_reseller';
@@ -592,7 +592,7 @@ server {
     }
 
     location /api/ {
-        proxy_pass http://127.0.0.1:1001;
+        proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -676,7 +676,7 @@ app.post('/api/wizard/setup-admin', async (req, res) => {
     dbUser = decodeURIComponent(u.username);
     dbPass = req.body.dbPassword || cachedDbPassword || decodeURIComponent(u.password);
     dbHost = u.hostname;
-    dbPort = parseInt(u.port, 10) || 2009;
+    dbPort = parseInt(u.port, 10) || 3306;
     dbName = u.pathname.replace(/^\//, '');
   } catch (e) {
     return fail(res, 'DATABASE_URL 格式不正确，请先测试数据库连接', 400, { detail: e.message });
@@ -775,8 +775,8 @@ app.post('/api/wizard/start-services', async (req, res) => {
   // 等待 3 秒让后端启动
   await new Promise((r) => setTimeout(r, 3000));
 
-  // 健康检查（端点为 /api/health，后端端口 1001）
-  const healthRes = await execCmd('curl -sS --max-time 5 http://127.0.0.1:1001/api/health || echo HEALTH_FAIL');
+  // 健康检查（端点为 /api/health，后端端口 3001）
+  const healthRes = await execCmd('curl -sS --max-time 5 http://127.0.0.1:3001/api/health || echo HEALTH_FAIL');
   const healthy = healthRes.ok && !healthRes.stdout.includes('HEALTH_FAIL') && healthRes.stdout.includes('"status":"ok"');
 
   // 标记向导完成
@@ -825,8 +825,8 @@ app.get('/api/wizard/services', async (req, res) => {
   const apiProc = list.find((p) => p.name === 'rainyun-api');
   const wizardProc = list.find((p) => p.name === 'rainyun-wizard');
 
-  // 后端健康检查（端点为 /api/health，端口 1001）
-  const healthRes = await execCmd('curl -sS --max-time 3 http://127.0.0.1:1001/api/health || echo FAIL');
+  // 后端健康检查（端点为 /api/health，端口 3001）
+  const healthRes = await execCmd('curl -sS --max-time 3 http://127.0.0.1:3001/api/health || echo FAIL');
   const apiHealthy = healthRes.ok && !healthRes.stdout.includes('FAIL') && healthRes.stdout.includes('"status":"ok"');
 
   ok(res, {

@@ -130,7 +130,7 @@ sudo ./deploy/deploy.sh
 - **业务库名**：默认 `rainyun_reseller`（可改）
 - **业务库用户**：默认 `rainyun`（可改）
 - **业务库密码**：**必须由用户手动填写**（≥ 8 位强密码）
-- **数据库端口**：默认 `2009`（与 MySQL 配置同步）
+- **数据库端口**：默认 `3306`（MySQL 软件默认端口）
 
 ### 部署完成输出
 
@@ -141,7 +141,7 @@ sudo ./deploy/deploy.sh
 
 接下来请访问网页外部向导完成最后配置：
 
-  👉 http://your-server-ip:7432
+  👉 http://your-server-ip/setup-wizard/
 
 🔐 向导访问令牌（请妥善保管，访问向导时需要输入）：
   a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
@@ -157,7 +157,7 @@ sudo ./deploy/deploy.sh
 
 ### 访问方式
 
-1. 浏览器打开脚本输出的向导地址（默认端口 `7432`）
+1. 浏览器打开脚本输出的向导地址（通过主站 `/setup-wizard/` 路径访问）
 2. 输入部署脚本控制台显示的**向导访问令牌**
 3. 验证通过后进入向导
 
@@ -167,7 +167,7 @@ sudo ./deploy/deploy.sh
 检测 Node.js / npm / PM2 / MySQL / Redis / Nginx / Git / 应用目录 / .env 文件是否就绪。
 
 #### 步骤 2：连接数据库
-- 预填：主机 `127.0.0.1`、端口 `2009`、用户 `rainyun`、库名 `rainyun_reseller`
+- 预填：主机 `127.0.0.1`、端口 `3306`、用户 `rainyun`、库名 `rainyun_reseller`
 - 密码必填，预填项可手动修改
 - **自动测试连接，严禁自动创建数据库**：库不存在直接报错，提示回 SSH 执行部署脚本
 - 测试成功后自动执行 `prisma migrate deploy` + `prisma db seed`
@@ -185,7 +185,7 @@ sudo ./deploy/deploy.sh
 
 #### 步骤 5：启动服务
 - PM2 启动后端进程 `rainyun-api`
-- 健康检查 `http://127.0.0.1:1001/api/health`
+- 健康检查 `http://127.0.0.1:3001/api/health`
 - **3 秒后自动关闭向导进程**（`pm2 delete rainyun-wizard`），外部无法再访问
 
 ### 向导 API
@@ -212,8 +212,8 @@ sudo ./deploy/deploy.sh
 ```bash
 rm /opt/rainyun-reseller/deploy/.wizard-done
 cd /opt/rainyun-reseller/deploy/setup-wizard
-APP_DIR=/opt/rainyun-reseller WIZARD_PORT=7432 pm2 start server.js --name rainyun-wizard
-# 重新访问 http://your-server-ip:7432，需再次输入向导令牌
+APP_DIR=/opt/rainyun-reseller WIZARD_PORT=8888 pm2 start server.js --name rainyun-wizard
+# 重新访问 http://your-server-ip/setup-wizard/，需再次输入向导令牌
 ```
 
 ---
@@ -234,16 +234,16 @@ sudo dnf install -y nodejs mysql-server redis nginx git
 sudo npm install -g pm2
 ```
 
-### 2. 修改 MySQL / Redis 端口（推荐）
+### 2. MySQL / Redis 端口（默认即可）
 
-`/etc/mysql/mysql.conf.d/mysqld.cnf` 在 `[mysqld]` 段下：
+`/etc/mysql/mysql.conf.d/mysqld.cnf` 在 `[mysqld]` 段下（默认即 3306，通常无需修改）：
 ```
-port=2009
+port=3306
 ```
 
-`/etc/redis/redis.conf`：
+`/etc/redis/redis.conf`（默认即 6379，通常无需修改）：
 ```
-port 2008
+port 6379
 ```
 
 ```bash
@@ -269,9 +269,9 @@ SQL
 cd server
 cp .env.example .env
 # 编辑 .env，至少修改：
-#   DATABASE_URL / SHADOW_DATABASE_URL（端口 2009 + 你的密码）
-#   REDIS_PORT=2008
-#   PORT=1001
+#   DATABASE_URL / SHADOW_DATABASE_URL（端口 3306 + 你的密码）
+#   REDIS_PORT=6379
+#   PORT=3001
 #   JWT_SECRET / ADMIN_JWT_SECRET（openssl rand -hex 32，≥ 32 字节）
 #   AES_SECRET（openssl rand -hex 16，恰好 32 字符）
 #   RAINYUN_API_KEY
@@ -318,7 +318,7 @@ server {
     }
 
     location /api/ {
-        proxy_pass http://127.0.0.1:1001;
+        proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -350,7 +350,7 @@ cp .env.example .env         # 编辑为本地配置
 npx prisma generate
 npx prisma migrate dev       # 开发模式迁移
 npm run prisma:seed
-npm run start:dev            # 热重载，http://localhost:1001
+npm run start:dev            # 热重载，http://localhost:3001
 ```
 
 新增业务模块：
@@ -372,7 +372,7 @@ npx prisma generate
 ```bash
 cd web
 npm install
-npm run dev                  # http://localhost:5173，自动代理 /api 到 1001
+npm run dev                  # http://localhost:5173，自动代理 /api 到 3001
 npm run type-check           # TS 类型检查
 npm run build                # 生产构建
 ```
@@ -400,7 +400,7 @@ npm run build                # 生产构建
 
 | 变量 | 说明 | 默认值 |
 |---|---|---|
-| `DATABASE_URL` | MySQL 连接串（端口 2009） | - |
+| `DATABASE_URL` | MySQL 连接串（端口 3306） | - |
 | `SHADOW_DATABASE_URL` | 迁移用影子库 | - |
 | `JWT_SECRET` | 用户端 JWT 密钥（≥ 32 字节强随机） | change-me |
 | `ADMIN_JWT_SECRET` | 管理端 JWT 密钥（≥ 32 字节强随机） | change-me |
@@ -415,8 +415,8 @@ npm run build                # 生产构建
 
 | 变量 | 说明 | 默认值 |
 |---|---|---|
-| `PORT` | 后端监听端口 | 1001 |
-| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` / `REDIS_DB` | Redis 连接 | 127.0.0.1 / 2008 / 空 / 0 |
+| `PORT` | 后端监听端口 | 3001 |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` / `REDIS_DB` | Redis 连接 | 127.0.0.1 / 6379 / 空 / 0 |
 | `JWT_EXPIRES_IN` / `ADMIN_JWT_EXPIRES_IN` | Token 过期时间 | 7d / 1d |
 | `RAINYUN_MOCK` | 雨云 MOCK 模式（生产环境告警） | false |
 | `RAINYUN_API_BASE` | 雨云 API 地址 | https://api.v2.rainyun.com |
@@ -437,17 +437,17 @@ openssl rand -hex 16      # AES_SECRET（32 字符 = 32 字节）
 
 ## 端口策略
 
-所有服务使用非默认端口，降低被扫描攻击风险：
+所有服务使用软件默认端口，便于部署与维护：
 
-| 服务 | 默认端口 | 本项目端口 |
+| 服务 | 端口 | 说明 |
 |---|---|---|
-| 后端 NestJS | 3000 | **1001** |
-| 网页部署向导 | 8888 | **7432** |
-| MySQL | 3306 | **2009** |
-| Redis | 6379 | **2008** |
-| Nginx HTTP / HTTPS | 80 / 443 | 80 / 443（必须） |
+| 后端 NestJS | 3001 | 仅监听 127.0.0.1，由 Nginx 反代 /api/ |
+| 网页部署向导 | 8888 | 仅监听 127.0.0.1，由 Nginx 反代 /setup-wizard/ |
+| MySQL | 3306 | 软件默认端口 |
+| Redis | 6379 | 软件默认端口 |
+| Nginx HTTP / HTTPS | 80 / 443 | 前端入口，必须 |
 
-> 部署脚本会自动修改 MySQL / Redis 配置文件并重启服务以应用新端口。
+> 向导服务仅监听 127.0.0.1，通过 Nginx 的 /setup-wizard/ 路径反代访问，无需开放 8888 端口到公网。
 
 ---
 
@@ -498,17 +498,17 @@ A：查看 `/opt/rainyun-reseller/deploy/.deploy-meta.json` 中的 `wizardToken`
 A：见上文 [重新配置](#重新配置) 章节。
 
 ### Q：端口被占用？
-A：本项目使用非默认端口（1001/7432/2009/2008）。如某端口已被占用，修改对应配置文件：
+A：本项目使用软件默认端口（后端 3001 / 向导 8888 / MySQL 3306 / Redis 6379）。如某端口已被占用，修改对应配置文件：
 - 后端：`server/.env` 的 `PORT`
 - 向导：`deploy.sh` 的 `WIZARD_PORT`
 - MySQL：`/etc/mysql/mysql.conf.d/mysqld.cnf` 的 `port`
 - Redis：`/etc/redis/redis.conf` 的 `port`
 
 ### Q：前端能访问但 API 502？
-A：检查 Nginx 反向代理是否指向 `http://127.0.0.1:1001`（非默认 3000）：
+A：检查 Nginx 反向代理是否指向 `http://127.0.0.1:3001`：
 ```bash
 pm2 status                   # 确认 rainyun-api 在运行
-curl http://127.0.0.1:1001/api/health   # 健康检查
+curl http://127.0.0.1:3001/api/health   # 健康检查
 ```
 
 ### Q：雨云 API 报 MOCK 模式？

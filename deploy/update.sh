@@ -695,7 +695,7 @@ max_wait=60
 waited=0
 healthy=0
 while [[ \$waited -lt \$max_wait ]]; do
-  resp=\$(curl -sS --max-time 3 http://127.0.0.1:1001/api/health 2>/dev/null || echo "")
+  resp=\$(curl -sS --max-time 3 http://127.0.0.1:3001/api/health 2>/dev/null || echo "")
   if echo "\$resp" | grep -q '"status":"ok"'; then
     healthy=1
     info "后端健康检查通过 (\${waited}s)"
@@ -814,7 +814,7 @@ health_check() {
 
   while [[ $waited -lt $max_wait ]]; do
     local resp
-    resp=$(curl -sS --max-time 3 http://127.0.0.1:1001/api/health 2>/dev/null || echo "")
+    resp=$(curl -sS --max-time 3 http://127.0.0.1:3001/api/health 2>/dev/null || echo "")
     if echo "$resp" | grep -q '"status":"ok"'; then
       healthy=1
       info "后端健康检查通过 (${waited}s)"
