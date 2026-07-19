@@ -81,10 +81,13 @@ test-results/
 playwright-report/
 playwright/.cache/
 screenshots/
+.test-shots/
 *_test.js
 *_test.py
 api_test.js
+api_test_v*.py
 e2e_test.py
+frontend_test.py
 page_test*.js
 page_test*.json
 ui_test.js

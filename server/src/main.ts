@@ -48,6 +48,18 @@ if (httpsProxy) {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { cors: false });
   const config = app.get(ConfigService);
+  const logger = new Logger('Bootstrap');
+
+  // trust proxy：生产环境通常位于 Nginx 反向代理之后，
+  // 必须信任 X-Forwarded-For / X-Forwarded-Proto 头，否则：
+  //   1. req.ip 会拿到 127.0.0.1，导致 ThrottlerGuard 速率限制对所有客户端共享同一桶
+  //   2. 日志记录的登录 IP / 审计 IP 全部失真
+  // 开发环境不启用（直接连本机端口，无代理头）
+  if (config.get('NODE_ENV') === 'production') {
+    // NestJS 的 INestApplication 接口未暴露 set()，但底层就是 Express 实例
+    (app as any).set('trust proxy', 1);
+    logger.log('🔒 已启用 trust proxy（信任 1 层反向代理）');
+  }
 
   // helmet：设置安全相关 HTTP 头（X-Content-Type-Options、X-Frame-Options、CSP、HSTS 等）
   app.use(
@@ -107,7 +119,6 @@ async function bootstrap() {
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
   const port = config.get<number>('PORT', 3001);
-  const logger = new Logger('Bootstrap');
 
   // ===== 生产环境启动安全校验 =====
   // 开源场景下，所有密钥必须强随机，禁止使用占位符/弱密钥

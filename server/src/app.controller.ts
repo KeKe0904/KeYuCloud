@@ -30,13 +30,13 @@ export class AppController {
   @Get('api/health')
   health() {
     const mock = this.config.get('RAINYUN_MOCK') === 'true' || !this.config.get('RAINYUN_API_KEY');
+    // 仅暴露最小必要信息，避免泄露站点配置（siteName、域名等）
     return {
       status: 'ok',
       service: 'rainyun-reseller-server',
       version: this.getAppVersion(),
       time: new Date().toISOString(),
       upstream: mock ? 'MOCK' : 'LIVE',
-      siteName: this.config.get('SITE_NAME'),
     };
   }
 }

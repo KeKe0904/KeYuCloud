@@ -14,6 +14,7 @@ import {
   MaxLength,
   IsDateString,
   ValidateNested,
+  Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -38,8 +39,12 @@ export class ChangePasswordDto {
   oldPassword: string;
 
   @IsString()
-  @MinLength(6)
+  @MinLength(8)
   @MaxLength(32)
+  // 管理员新密码要求字母+数字组合，且至少 8 位
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d).{8,32}$/, {
+    message: '新密码必须同时包含字母和数字，且至少 8 位',
+  })
   newPassword: string;
 }
 
@@ -87,8 +92,11 @@ export class BalanceAdjustDto {
 
 export class ResetPasswordDto {
   @IsString()
-  @MinLength(6)
+  @MinLength(8)
   @MaxLength(32)
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d).{8,32}$/, {
+    message: '新密码必须同时包含字母和数字，且至少 8 位',
+  })
   newPassword: string;
 }
 
@@ -407,8 +415,11 @@ export class CreateAdminDto {
   username: string;
 
   @IsString()
-  @MinLength(6)
+  @MinLength(8)
   @MaxLength(32)
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d).{8,32}$/, {
+    message: '密码必须同时包含字母和数字，且至少 8 位',
+  })
   password: string;
 
   @IsOptional()
@@ -463,8 +474,11 @@ export class UpdateAdminDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(6)
+  @MinLength(8)
   @MaxLength(32)
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d).{8,32}$/, {
+    message: '新密码必须同时包含字母和数字，且至少 8 位',
+  })
   password?: string; // 重置密码
 }
 

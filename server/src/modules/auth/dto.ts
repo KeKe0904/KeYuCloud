@@ -15,6 +15,10 @@ export class RegisterDto {
   @IsString()
   @MinLength(8, { message: '密码至少 8 位' })
   @MaxLength(32)
+  // 密码复杂度：必须同时包含字母和数字（防纯数字/纯字母弱口令）
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d).{8,32}$/, {
+    message: '密码必须同时包含字母和数字',
+  })
   password: string;
 
   @IsString()
@@ -57,6 +61,10 @@ export class ChangePasswordDto {
   @IsString()
   @MinLength(8)
   @MaxLength(32)
+  // 新密码同样要求字母+数字组合
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d).{8,32}$/, {
+    message: '新密码必须同时包含字母和数字',
+  })
   newPassword: string;
 }
 
