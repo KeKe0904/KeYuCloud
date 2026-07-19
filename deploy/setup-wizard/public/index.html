@@ -427,6 +427,20 @@
     state.wizardToken = sessionStorage.getItem('wizardToken') || '';
 
     // ============ 工具 ============
+    // 关键：所有 /api/wizard/* 请求必须加 /setup-wizard 前缀
+    // 因为 Nginx 路由规则是：
+    //   /api/         → 反代到后端 NestJS 3001（部署期间未启动）
+    //   /setup-wizard/ → 反代到向导 8888（本服务）
+    // 若直接 fetch('/api/wizard/...') 会被路由到 3001，导致 502 错误
+    // 通过 location.pathname 自动检测当前是否在 /setup-wizard/ 路径下
+    const WIZARD_PREFIX = (function() {
+      // 从当前页面 URL 推断向导前缀（支持部署在子路径的场景）
+      const m = location.pathname.match(/^(\/[^\/]*\/?)setup-wizard\/?/);
+      if (m) return m[1].replace(/\/$/, '');
+      // 默认 /setup-wizard
+      return '/setup-wizard';
+    })();
+
     async function api(path, body = null, method = 'POST') {
       const opts = {
         method,
@@ -437,7 +451,9 @@
         opts.headers['x-wizard-token'] = state.wizardToken;
       }
       if (body) opts.body = JSON.stringify(body);
-      const res = await fetch(path, opts);
+      // /api/wizard/* 请求加 /setup-wizard 前缀，确保 Nginx 路由到向导 8888
+      const finalPath = path.startsWith('/api/wizard/') ? WIZARD_PREFIX + path : path;
+      const res = await fetch(finalPath, opts);
       let data;
       try { data = await res.json(); } catch (_) { data = {}; }
       return { ok: res.ok, status: res.status, data };
