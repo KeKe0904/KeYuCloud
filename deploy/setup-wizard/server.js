@@ -576,10 +576,29 @@ app.post('/api/wizard/configure-domain', async (req, res) => {
   }
 
   // 更新 Nginx 配置（若已安装）
+  // 关键：不能覆盖整个配置文件，否则会丢失 Certbot 管理的 HTTPS server 块、
+  // /setup-wizard/ 反代规则、no-cache 头等。只更新已存在配置中的 server_name。
   const nginxRes = await execCmd('command -v nginx');
   if (nginxRes.ok) {
     const nginxConf = '/etc/nginx/conf.d/rainyun-reseller.conf';
-    const confBody = `# 由 setup-wizard 生成 - ${new Date().toISOString()}
+    try {
+      if (fs.existsSync(nginxConf)) {
+        // 配置已存在：只替换 server_name 行（保留所有其他配置）
+        const curConf = fs.readFileSync(nginxConf, 'utf8');
+        // 匹配 server_name xxx; 行（含注释里的不会误伤，因为注释以 # 开头）
+        const newConf = curConf.replace(
+          /^(\s*server_name\s+)[^;]+;\s*$/m,
+          `$1${domain};`,
+        );
+        if (newConf !== curConf) {
+          fs.writeFileSync(nginxConf, newConf);
+          await execCmd('nginx -t && systemctl reload nginx || nginx -s reload');
+        }
+        // 如果 server_name 没变（用户重新保存相同域名），不做任何操作
+      } else {
+        // 配置不存在（首次部署）：生成基础 HTTP 配置
+        // 注意：此分支只在 nginx 配置完全不存在时触发，不会覆盖已有配置
+        const confBody = `# 由 setup-wizard 生成 - ${new Date().toISOString()}
 server {
     listen 80;
     server_name ${domain};
@@ -601,17 +620,28 @@ server {
         proxy_read_timeout 60s;
     }
 
+    location /setup-wizard/ {
+        proxy_pass http://127.0.0.1:${meta.wizardPort || 8888}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+
     location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
         expires 7d;
         add_header Cache-Control "public, immutable";
     }
 }
 `;
-    try {
-      fs.writeFileSync(nginxConf, confBody);
-      await execCmd('nginx -t && systemctl reload nginx || nginx -s reload');
+        fs.writeFileSync(nginxConf, confBody);
+        await execCmd('nginx -t && systemctl reload nginx || nginx -s reload');
+      }
     } catch (e) {
-      // nginx 失败不致命
+      // nginx 失败不致命，记录日志即可
+      console.warn('[wizard] nginx 配置更新失败（不致命）:', e.message);
     }
   }
 
