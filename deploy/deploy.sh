@@ -1024,37 +1024,37 @@ start_wizard() {
 
   # 向导通过 Nginx 反代 /setup-wizard/ 路径访问，无需开放 8888 端口到公网
   # 向导服务本身只监听 127.0.0.1:8888（仅本地），由 Nginx 转发
-  # wizard_url 使用主站端口（7432 HTTP / 7433 HTTPS）+ /setup-wizard/ 路径
+  # wizard_url 使用主站默认端口（80 HTTP / 443 HTTPS，不在 URL 中显示端口号）+ /setup-wizard/ 路径
   local wizard_url
   if [[ -n "$DOMAIN" ]]; then
     if [[ "$SSL_MODE" == "letsencrypt" || "$SSL_MODE" == "custom" ]]; then
-      wizard_url="https://$DOMAIN:${FRONTEND_SSL_PORT}/setup-wizard/"
+      wizard_url="https://$DOMAIN/setup-wizard/"
     else
-      wizard_url="http://$DOMAIN:${FRONTEND_PORT}/setup-wizard/"
+      wizard_url="http://$DOMAIN/setup-wizard/"
     fi
   else
     local server_ip
     server_ip="$(curl -sS --max-time 5 ifconfig.me 2>/dev/null || echo 'localhost')"
-    wizard_url="http://$server_ip:${FRONTEND_PORT}/setup-wizard/"
+    wizard_url="http://$server_ip/setup-wizard/"
   fi
 
-  # 放行防火墙端口：前端端口 7432（HTTP）/ 7433（HTTPS）
+  # 放行防火墙端口：80（HTTP）/ 443（HTTPS，如配置 SSL）
   # 向导端口 8888 无需放行（仅监听 127.0.0.1，由 Nginx 反代）
-  info "检查防火墙端口 ${FRONTEND_PORT}（前端 HTTP）..."
+  info "检查防火墙端口 80（HTTP）..."
   if command -v ufw >/dev/null 2>&1; then
-    ufw allow "${FRONTEND_PORT}/tcp" >/dev/null 2>&1 && info "ufw 已放行 ${FRONTEND_PORT}/tcp"
-    [[ "$SSL_MODE" != "none" ]] && ufw allow "${FRONTEND_SSL_PORT}/tcp" >/dev/null 2>&1
+    ufw allow 80/tcp >/dev/null 2>&1 && info "ufw 已放行 80/tcp"
+    [[ "$SSL_MODE" != "none" ]] && ufw allow 443/tcp >/dev/null 2>&1
   elif command -v firewall-cmd >/dev/null 2>&1; then
-    firewall-cmd --add-port="${FRONTEND_PORT}/tcp" --permanent >/dev/null 2>&1
-    [[ "$SSL_MODE" != "none" ]] && firewall-cmd --add-port="${FRONTEND_SSL_PORT}/tcp" --permanent >/dev/null 2>&1
+    firewall-cmd --add-port=80/tcp --permanent >/dev/null 2>&1
+    [[ "$SSL_MODE" != "none" ]] && firewall-cmd --add-port=443/tcp --permanent >/dev/null 2>&1
     firewall-cmd --reload >/dev/null 2>&1
     info "firewall-cmd 已放行前端端口"
   elif command -v iptables >/dev/null 2>&1; then
-    iptables -C INPUT -p tcp --dport "${FRONTEND_PORT}" -j ACCEPT 2>/dev/null || \
-      iptables -I INPUT -p tcp --dport "${FRONTEND_PORT}" -j ACCEPT >/dev/null 2>&1
+    iptables -C INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || \
+      iptables -I INPUT -p tcp --dport 80 -j ACCEPT >/dev/null 2>&1
     [[ "$SSL_MODE" != "none" ]] && {
-      iptables -C INPUT -p tcp --dport "${FRONTEND_SSL_PORT}" -j ACCEPT 2>/dev/null || \
-        iptables -I INPUT -p tcp --dport "${FRONTEND_SSL_PORT}" -j ACCEPT >/dev/null 2>&1
+      iptables -C INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || \
+        iptables -I INPUT -p tcp --dport 443 -j ACCEPT >/dev/null 2>&1
     }
     info "iptables 已放行前端端口"
   fi
