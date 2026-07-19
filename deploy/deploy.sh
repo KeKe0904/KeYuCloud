@@ -655,6 +655,20 @@ generate_env() {
   admin_jwt_secret="$(openssl rand -hex 32)"
   aes_secret="$(openssl rand -hex 32)"
 
+  # 预先计算 UPDATE_REPO（owner/repo 格式），避免在 heredoc 中展开未定义变量
+  # 注意：heredoc 中的 UPDATE_REPO=xxx 只是写入文件的内容，不会在 shell 中执行赋值
+  # 所以必须在 heredoc 之前计算好，再在 heredoc 中引用 $UPDATE_REPO
+  # 优先从 git remote 获取真实 URL（避免 REPO_URL 默认占位符 your-org/rainyun-reseller）
+  local git_remote_url=""
+  git_remote_url="$(cd "$APP_DIR" && git remote get-url origin 2>/dev/null || echo "")"
+  if [[ -z "$git_remote_url" ]]; then
+    git_remote_url="$REPO_URL"
+  fi
+  local update_repo="${git_remote_url#https://github.com/}"
+  update_repo="${update_repo%.git}"
+  # 如果是 SSH 格式（git@github.com:owner/repo.git），也处理一下
+  update_repo="${update_repo#git@github.com:}"
+
   local site_url
   if [[ -n "$DOMAIN" ]]; then
     if [[ "$SSL_MODE" != "none" ]]; then
@@ -725,8 +739,7 @@ UPLOAD_MAX_SIZE=10485760
 # ===== 在线更新（v1.1.0 新增）=====
 # 用于管理后台「强制更新」功能调用 GitHub Release API 检测新版本
 # 格式: owner/repo（如 KeKe0904/KeYuCloud）
-UPDATE_REPO=${REPO_URL#https://github.com/}
-UPDATE_REPO=${UPDATE_REPO%.git}
+UPDATE_REPO=${update_repo}
 EOF
 
   chmod 600 .env
