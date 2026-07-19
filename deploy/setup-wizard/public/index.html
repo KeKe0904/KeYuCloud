@@ -436,13 +436,16 @@
     //   /api/         → 反代到后端 NestJS 3001（部署期间未启动）
     //   /setup-wizard/ → 反代到向导 8888（本服务）
     // 若直接 fetch('/api/wizard/...') 会被路由到 3001，导致 502 错误
-    // 通过 location.pathname 自动检测当前是否在 /setup-wizard/ 路径下
+    // WIZARD_PREFIX 必须是不带尾斜杠的路径，例如 '/setup-wizard' 或 '/foo/setup-wizard'
     const WIZARD_PREFIX = (function() {
-      // 从当前页面 URL 推断向导前缀（支持部署在子路径的场景）
-      const m = location.pathname.match(/^(\/[^\/]*\/?)setup-wizard\/?/);
-      if (m) return m[1].replace(/\/$/, '');
-      // 默认 /setup-wizard
-      return '/setup-wizard';
+      // 从当前页面 URL 推断向导前缀
+      // 匹配 /setup-wizard/ 或 /something/setup-wizard/ 等场景
+      const p = location.pathname; // 例如 "/setup-wizard/" 或 "/foo/setup-wizard/"
+      const idx = p.indexOf('/setup-wizard');
+      if (idx < 0) return '/setup-wizard'; // 兜底
+      // idx=0 时返回 '/setup-wizard'，idx>0 时返回 pathname 前缀 + '/setup-wizard'
+      // 例如 idx=4 时（路径 /foo/setup-wizard/）返回 '/foo' + '/setup-wizard' = '/foo/setup-wizard'
+      return (idx === 0 ? '' : p.substring(0, idx)) + '/setup-wizard';
     })();
 
     async function api(path, body = null, method = 'POST') {
