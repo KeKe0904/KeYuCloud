@@ -47,9 +47,11 @@ LOG_FILE="/var/log/rainyun-deploy.log"
 STEP_FILE="/tmp/rainyun-deploy-step"
 
 # 颜色（仅在交互式时启用）
+# 关键：用 $'...' ANSI-C quoting，让变量值是真正的 ANSI 转义符（ESC 字符），
+# 而不是字面字符串 "\033[..."。这样在 cat <<EOF heredoc 中也能正确显示颜色。
 if [[ -t 1 && "$DEPLOY_NONINTERACTIVE" != "1" ]]; then
-  C_RED='\033[0;31m'; C_GREEN='\033[0;32m'; C_YELLOW='\033[0;33m'
-  C_BLUE='\033[0;34m'; C_CYAN='\033[0;36m'; C_BOLD='\033[1m'; C_RESET='\033[0m'
+  C_RED=$'\033[0;31m'; C_GREEN=$'\033[0;32m'; C_YELLOW=$'\033[0;33m'
+  C_BLUE=$'\033[0;34m'; C_CYAN=$'\033[0;36m'; C_BOLD=$'\033[1m'; C_RESET=$'\033[0m'
 else
   C_RED=''; C_GREEN=''; C_YELLOW=''; C_BLUE=''; C_CYAN=''; C_BOLD=''; C_RESET=''
 fi
@@ -139,8 +141,15 @@ env_or_prompt() {
 }
 
 # 提示密码（不回显）
+# 用法：prompt_password "消息" [环境变量名] [--confirm]
+# --confirm: 双重输入确认（适用于首次设置密码，避免输错）
 prompt_password() {
-  local msg="$1" var env_name="${2:-}"
+  local msg="$1" env_name="${2:-}" confirm=0
+  # 解析 --confirm 标志
+  for arg in "${@:2}"; do
+    [[ "$arg" == "--confirm" ]] && confirm=1
+  done
+
   if [[ "$DEPLOY_NONINTERACTIVE" == "1" && -n "$env_name" ]]; then
     local val="${!env_name:-}"
     if [[ -z "$val" ]]; then
@@ -150,13 +159,24 @@ prompt_password() {
     echo "$val"
     return
   fi
+
+  local pwd1 pwd2
   while true; do
-    read -rsp "$(echo -e "${C_CYAN}${msg}${C_RESET}: ")" var
+    read -rsp "$(echo -e "${C_CYAN}${msg}${C_RESET}: ")" pwd1
     echo
-    [[ -n "$var" ]] && break
-    echo -e "${C_RED}密码不能为空${C_RESET}"
+    [[ -n "$pwd1" ]] || { echo -e "${C_RED}密码不能为空${C_RESET}"; continue; }
+
+    if [[ $confirm -eq 1 ]]; then
+      read -rsp "$(echo -e "${C_CYAN}再次输入以确认${C_RESET}: ")" pwd2
+      echo
+      if [[ "$pwd1" != "$pwd2" ]]; then
+        echo -e "${C_RED}两次输入的密码不一致，请重新输入${C_RESET}"
+        continue
+      fi
+    fi
+    break
   done
-  echo "$var"
+  echo "$pwd1"
 }
 
 # 确认
@@ -467,7 +487,8 @@ configure_db() {
     info "非交互模式：从 DB_PASS 环境变量读取数据库密码"
   else
     echo -e "${C_CYAN}请为业务数据库用户 ${db_user} 设置密码（必须手动填写，建议 16 位以上强密码）${C_RESET}"
-    db_pwd="$(prompt_password "$db_user 密码")"
+    echo -e "${C_YELLOW}为避免输入错误，需要输入两次确认${C_RESET}"
+    db_pwd="$(prompt_password "$db_user 密码" "" --confirm)"
   fi
 
   # 简单强度校验
@@ -878,6 +899,18 @@ server {
         proxy_read_timeout 60s;
     }
 
+    # 部署向导反向代理（仅部署期间可用，向导完成后服务自动关闭）
+    # 通过 /setup-wizard/ 路径访问，无需开放 7432 端口
+    location /setup-wizard/ {
+        proxy_pass http://127.0.0.1:${WIZARD_PORT}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300s;
+    }
+
     # 静态资源缓存
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
         expires 7d;
@@ -914,6 +947,16 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location /setup-wizard/ {
+        proxy_pass http://127.0.0.1:${WIZARD_PORT}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300s;
     }
 
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
@@ -956,15 +999,19 @@ start_wizard() {
     pm2 start server.js --name rainyun-wizard --cwd "$APP_DIR/deploy/setup-wizard" 2>&1 | tail -5
   pm2 save 2>/dev/null || true
 
-  # 向导是 HTTP 服务（setup-wizard/server.js 用 app.listen 启动，非 https.createServer）
-  # 即使站点配置了 SSL，向导本身仍走 HTTP，不能用 https:// 访问，否则浏览器连接失败
+  # 向导通过 Nginx 反代 /setup-wizard/ 路径访问，不需要开放 7432 端口
+  # 向导服务本身只监听 127.0.0.1:7432（仅本地），由 Nginx 转发
   local wizard_url
   if [[ -n "$DOMAIN" ]]; then
-    wizard_url="http://$DOMAIN:$WIZARD_PORT"
+    if [[ "$SSL_MODE" == "letsencrypt" || "$SSL_MODE" == "custom" ]]; then
+      wizard_url="https://$DOMAIN/setup-wizard/"
+    else
+      wizard_url="http://$DOMAIN/setup-wizard/"
+    fi
   else
     local server_ip
     server_ip="$(curl -sS --max-time 5 ifconfig.me 2>/dev/null || echo 'localhost')"
-    wizard_url="http://$server_ip:$WIZARD_PORT"
+    wizard_url="http://$server_ip/setup-wizard/"
   fi
 
   # 尝试放行防火墙端口（ufw / firewall-cmd / iptables）
@@ -1038,12 +1085,10 @@ ${C_CYAN}向导完成后即可正常访问站点：${C_RESET}
 
 ${C_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}
 ${C_BOLD}${C_RED}⚠️  如果无法访问向导，请检查以下三项：${C_RESET}
-${C_YELLOW}1. 云服务商安全组：放行 TCP ${WIZARD_PORT} 端口（入站规则）
-   - 阿里云/腾讯云/华为云等均需在控制台手动放行
-${C_YELLOW}2. 向导使用 HTTP 协议（不是 HTTPS）${C_RESET}
-${C_YELLOW}   - 浏览器地址栏必须输入: ${wizard_url}${C_RESET}
-${C_YELLOW}   - 不要使用 https:// 前缀，否则浏览器无法连接${C_RESET}
-${C_YELLOW}3. 本地网络/防火墙：如企业网络屏蔽了非常用端口，请换网络重试${C_RESET}
+${C_YELLOW}1. 云服务商安全组：放行 TCP 80/443 端口（入站规则）${C_RESET}
+${C_YELLOW}   - 向导通过主站 /setup-wizard/ 路径访问，无需开放 7432 端口${C_RESET}
+${C_YELLOW}2. 确认 Nginx 已正常运行：systemctl status nginx${C_RESET}
+${C_YELLOW}3. 确认向导进程在运行：pm2 logs rainyun-wizard --lines 20${C_RESET}
 ${C_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}
 
 EOF

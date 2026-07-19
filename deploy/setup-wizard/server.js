@@ -32,7 +32,10 @@ const bcrypt = require('bcryptjs');
 const mysql = require('mysql2/promise');
 
 const PORT = parseInt(process.env.WIZARD_PORT || '7432', 10);
-const HOST = process.env.WIZARD_HOST || '0.0.0.0';
+// 关键：默认监听 127.0.0.1（仅本地），通过 Nginx 反代 /setup-wizard/ 路径访问
+// 这样无需开放 7432 端口到公网，更安全
+// 如需直接公网访问（如 Nginx 未配置），设置 WIZARD_HOST=0.0.0.0
+const HOST = process.env.WIZARD_HOST || '127.0.0.1';
 
 // 部署元信息文件路径（由 deploy.sh 生成）
 const META_FILE = path.join(__dirname, '..', '.deploy-meta.json');
