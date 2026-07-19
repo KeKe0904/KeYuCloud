@@ -19,7 +19,7 @@
 #   DB_USER          数据库用户（默认 rainyun）
 #   DB_PASS          数据库密码（必填）
 #   DB_HOST          数据库主机（默认 127.0.0.1）
-#   DB_PORT          数据库端口（默认 2009）
+#   DB_PORT          数据库端口（默认 3306，MySQL 软件默认端口）
 #   DOMAIN           站点域名（可留空）
 #   SSL_MODE         SSL 模式（none/custom/letsencrypt，默认 none）
 #   SITE_URL         站点完整 URL（覆盖 DOMAIN+SSL_MODE 计算）
@@ -42,11 +42,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${APP_DIR:-/opt/rainyun-reseller}"
 REPO_URL="${REPO_URL:-https://github.com/your-org/rainyun-reseller.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
-# 端口策略（全部使用默认端口）：
+# 端口策略（全部使用软件默认端口）：
 #   - 前端（Nginx）：80（HTTP）/ 443（HTTPS，如配置 SSL）
 #   - 后端（NestJS）：1001（仅 127.0.0.1，由 Nginx 反代）
 #   - 向导（setup-wizard）：8888（仅 127.0.0.1，由 Nginx 反代 /setup-wizard/ 路径）
-#   - MySQL：2009 / Redis：2008（非默认端口，降低扫描风险）
+#   - MySQL：3306 / Redis：6379（软件默认端口）
 WIZARD_PORT="${WIZARD_PORT:-8888}"
 LOG_FILE="/var/log/rainyun-deploy.log"
 STEP_FILE="/tmp/rainyun-deploy-step"
@@ -310,78 +310,25 @@ install_deps() {
   log "依赖检测与安装完成"
 }
 
-# 配置 MySQL / Redis 使用非默认端口
+# 检测 MySQL / Redis 服务状态（使用软件默认端口：MySQL 3306 / Redis 6379）
 configure_service_ports() {
-  # ===== MySQL 端口 2009 =====
+  # ===== MySQL 默认端口 3306 =====
   if has_cmd mysql; then
-    local my_cnf=""
-    for f in /etc/mysql/mysql.conf.d/mysqld.cnf /etc/mysql/my.cnf /etc/my.cnf /etc/mysql/conf.d/mysql.cnf; do
-      [[ -f "$f" ]] && my_cnf="$f" && break
-    done
-
-    if [[ -n "$my_cnf" ]]; then
-      # 检查当前实际端口
-      local cur_port
-      cur_port="$(mysql -uroot -N -e 'SHOW VARIABLES LIKE "port";' 2>/dev/null | awk '{print $2}')"
-      if [[ "$cur_port" != "2009" ]]; then
-        info "配置 MySQL 端口为 2009 (配置文件: $my_cnf)"
-        # 备份
-        cp "$my_cnf" "${my_cnf}.bak.$(date +%s)" 2>/dev/null || true
-        # 在 [mysqld] 段下添加 port=2009
-        if grep -q '^\s*\[mysqld\]' "$my_cnf"; then
-          # 先删除已存在的 port 行
-          sed -i '/^\s*port\s*=/d' "$my_cnf"
-          # 在 [mysqld] 段后插入
-          sed -i '/^\s*\[mysqld\]/a port=2009' "$my_cnf"
-        else
-          # 没有 [mysqld] 段，追加
-          printf '\n[mysqld]\nport=2009\n' >> "$my_cnf"
-        fi
-        # 重启 MySQL
-        if has_cmd systemctl; then
-          systemctl restart mysql 2>/dev/null || systemctl restart mysqld 2>/dev/null || true
-        fi
-        sleep 2
-        info "MySQL 端口已改为 2009"
-      else
-        info "MySQL 端口已为 2009，跳过"
-      fi
+    local cur_port
+    cur_port="$(mysql -uroot -N -e 'SHOW VARIABLES LIKE "port";' 2>/dev/null | awk '{print $2}')"
+    if [[ -n "$cur_port" ]]; then
+      info "MySQL 当前监听端口: $cur_port（软件默认 3306）"
     else
-      warn "未找到 MySQL 配置文件，请手动修改 MySQL 端口为 2009"
+      warn "无法读取 MySQL 端口，请确认 MySQL 服务已启动"
     fi
   fi
 
-  # ===== Redis 端口 2008 =====
+  # ===== Redis 默认端口 6379 =====
   if has_cmd redis-cli; then
-    local redis_cnf=""
-    for f in /etc/redis/redis.conf /etc/redis.conf /etc/redis/redis-server.conf; do
-      [[ -f "$f" ]] && redis_cnf="$f" && break
-    done
-
-    if [[ -n "$redis_cnf" ]]; then
-      # 检查当前实际端口
-      local cur_redis_port
-      cur_redis_port="$(redis-cli -p 6379 ping 2>/dev/null && echo 6379 || (redis-cli -p 2008 ping 2>/dev/null && echo 2008 || echo ''))"
-      if [[ "$cur_redis_port" == "6379" || -z "$cur_redis_port" ]]; then
-        info "配置 Redis 端口为 2008 (配置文件: $redis_cnf)"
-        cp "$redis_cnf" "${redis_cnf}.bak.$(date +%s)" 2>/dev/null || true
-        # 替换或新增 port 行
-        if grep -q '^\s*port\s' "$redis_cnf"; then
-          sed -i 's/^\s*port\s\+.*/port 2008/' "$redis_cnf"
-        else
-          sed -i '/^\s*port\s*=/d' "$redis_cnf"
-          printf '\nport 2008\n' >> "$redis_cnf"
-        fi
-        if has_cmd systemctl; then
-          systemctl restart redis 2>/dev/null || systemctl restart redis-server 2>/dev/null || true
-        fi
-        sleep 2
-        info "Redis 端口已改为 2008"
-      else
-        info "Redis 端口已为 2008，跳过"
-      fi
+    if redis-cli -p 6379 ping 2>/dev/null | grep -q PONG; then
+      info "Redis 监听端口: 6379（软件默认）"
     else
-      warn "未找到 Redis 配置文件，请手动修改 Redis 端口为 2008"
+      warn "Redis 6379 端口未响应，请确认 Redis 服务已启动"
     fi
   fi
 }
@@ -481,7 +428,7 @@ configure_db() {
   db_name="$(env_or_prompt 'DB_NAME' '数据库名' 'rainyun_reseller')"
   db_user="$(env_or_prompt 'DB_USER' '数据库用户' 'rainyun')"
   db_host="$(env_or_prompt 'DB_HOST' '数据库主机' '127.0.0.1')"
-  db_port="$(env_or_prompt 'DB_PORT' '数据库端口' '2009')"
+  db_port="$(env_or_prompt 'DB_PORT' '数据库端口' '3306')"
 
   if [[ "$DEPLOY_NONINTERACTIVE" == "1" ]]; then
     db_pwd="${DB_PASS:-}"
@@ -726,7 +673,7 @@ SHADOW_DATABASE_URL="mysql://${DB_USER}:${DB_PWD}@${DB_HOST}:${DB_PORT}/${DB_NAM
 
 # ===== Redis =====
 REDIS_HOST=127.0.0.1
-REDIS_PORT=2008
+REDIS_PORT=6379
 REDIS_PASSWORD=
 REDIS_DB=0
 
