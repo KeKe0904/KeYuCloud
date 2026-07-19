@@ -26,7 +26,7 @@
 #   REPO_URL         Git 仓库 URL
 #   REPO_BRANCH      Git 分支（默认 main）
 #   APP_DIR          应用目录（默认 /opt/rainyun-reseller）
-#   WIZARD_PORT      向导端口（默认 7432）
+#   WIZARD_PORT      向导端口（默认 8888，仅监听 127.0.0.1，由 Nginx 反代）
 #   RAINYUN_API_KEY  雨云 API Key（可留空，使用 MOCK）
 #
 # 支持系统：Ubuntu 20.04+ / Debian 11+ / CentOS 8+ / RHEL 9+
@@ -42,7 +42,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${APP_DIR:-/opt/rainyun-reseller}"
 REPO_URL="${REPO_URL:-https://github.com/your-org/rainyun-reseller.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
-WIZARD_PORT="${WIZARD_PORT:-7432}"
+# 端口策略：
+#   - 前端（Nginx）：7432（HTTP）/ 7433（HTTPS，如配置 SSL）
+#   - 后端（NestJS）：1001（仅 127.0.0.1，由 Nginx 反代）
+#   - 向导（setup-wizard）：8888（仅 127.0.0.1，由 Nginx 反代 /setup-wizard/ 路径）
+#   - MySQL：2009 / Redis：2008（非默认端口，降低扫描风险）
+WIZARD_PORT="${WIZARD_PORT:-8888}"
+FRONTEND_PORT="${FRONTEND_PORT:-7432}"
+FRONTEND_SSL_PORT="${FRONTEND_SSL_PORT:-7433}"
 LOG_FILE="/var/log/rainyun-deploy.log"
 STEP_FILE="/tmp/rainyun-deploy-step"
 
@@ -690,17 +697,18 @@ generate_env() {
   # 如果是 SSH 格式（git@github.com:owner/repo.git），也处理一下
   update_repo="${update_repo#git@github.com:}"
 
+  # site_url 使用前端端口（7432 HTTP / 7433 HTTPS）
   local site_url
   if [[ -n "$DOMAIN" ]]; then
-    if [[ "$SSL_MODE" != "none" ]]; then
-      site_url="https://$DOMAIN"
+    if [[ "$SSL_MODE" == "letsencrypt" || "$SSL_MODE" == "custom" ]]; then
+      site_url="https://$DOMAIN:${FRONTEND_SSL_PORT}"
     else
-      site_url="http://$DOMAIN"
+      site_url="http://$DOMAIN:${FRONTEND_PORT}"
     fi
   else
     local server_ip
     server_ip="$(curl -sS --max-time 5 ifconfig.me 2>/dev/null || echo 'localhost')"
-    site_url="http://$server_ip"
+    site_url="http://$server_ip:${FRONTEND_PORT}"
   fi
 
   cat > .env <<EOF
@@ -872,8 +880,13 @@ configure_nginx() {
   local nginx_conf="/etc/nginx/conf.d/rainyun-reseller.conf"
   cat > "$nginx_conf" <<EOF
 # 雨云服务器分销平台 Nginx 配置
+# 端口策略：
+#   - 前端 HTTP：7432（主入口，提供前端静态文件 + API 反代 + 向导反代）
+#   - 前端 HTTPS：7433（仅 SSL_MODE=custom 时启用）
+#   - 后端 NestJS：1001（仅 127.0.0.1，由本配置反代 /api/）
+#   - 部署向导：8888（仅 127.0.0.1，由本配置反代 /setup-wizard/）
 server {
-    listen 80;
+    listen ${FRONTEND_PORT};
     server_name $server_name;
 
     # 前端静态资源
@@ -888,7 +901,7 @@ server {
         try_files \$uri \$uri/ /index.html;
     }
 
-    # API 反向代理
+    # API 反向代理 → 后端 1001
     location /api/ {
         proxy_pass http://127.0.0.1:1001;
         proxy_http_version 1.1;
@@ -899,8 +912,8 @@ server {
         proxy_read_timeout 60s;
     }
 
-    # 部署向导反向代理（仅部署期间可用，向导完成后服务自动关闭）
-    # 通过 /setup-wizard/ 路径访问，无需开放 7432 端口
+    # 部署向导反向代理 → 127.0.0.1:8888（仅部署期间可用，向导完成后服务自动关闭）
+    # 用户通过 主站:7432/setup-wizard/ 访问，无需开放 8888 端口到公网
     location /setup-wizard/ {
         proxy_pass http://127.0.0.1:${WIZARD_PORT}/;
         proxy_http_version 1.1;
@@ -923,7 +936,7 @@ EOF
     cat >> "$nginx_conf" <<EOF
 
 server {
-    listen 443 ssl http2;
+    listen ${FRONTEND_SSL_PORT} ssl http2;
     server_name $server_name;
 
     ssl_certificate $SSL_CERT;
@@ -971,13 +984,80 @@ EOF
   info "Nginx 配置已写入 $nginx_conf"
 
   # Let's Encrypt 自动申请
+  # 注意：certbot 验证需要 80 端口，但本项目前端用 7432 端口
+  # 方案：使用 standalone 模式，临时停掉 nginx 让 certbot 用 80 端口验证，申请完再恢复
   if [[ "$SSL_MODE" == "letsencrypt" ]]; then
-    info "申请 Let's Encrypt 证书..."
-    if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect 2>&1 | tail -10; then
-      log "Let's Encrypt 证书申请成功"
-    else
-      warn "Let's Encrypt 申请失败，请检查域名是否已正确解析到本机 80 端口"
+    info "申请 Let's Encrypt 证书（standalone 模式，临时占用 80 端口）..."
+    # 停掉 nginx 释放 80 端口
+    if has_cmd systemctl; then
+      systemctl stop nginx 2>/dev/null || true
     fi
+    sleep 1
+    if certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email 2>&1 | tail -10; then
+      log "Let's Encrypt 证书申请成功"
+      # 获取证书路径
+      SSL_CERT="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+      SSL_KEY="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+      # 追加 HTTPS server 块（监听 7433）
+      cat >> "$nginx_conf" <<EOF
+
+# HTTPS server（Let's Encrypt 证书）
+server {
+    listen ${FRONTEND_SSL_PORT} ssl http2;
+    server_name $server_name;
+
+    ssl_certificate $SSL_CERT;
+    ssl_certificate_key $SSL_KEY;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    root $APP_DIR/web/dist;
+    index index.html;
+    client_max_body_size 10m;
+
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:1001;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location /setup-wizard/ {
+        proxy_pass http://127.0.0.1:${WIZARD_PORT}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300s;
+    }
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
+}
+EOF
+    else
+      warn "Let's Encrypt 申请失败，请检查："
+      warn "  1. 域名 $DOMAIN 是否已正确解析到本机公网 IP"
+      warn "  2. 云服务商安全组是否放行 TCP 80 端口（certbot 验证用）"
+      warn "  3. 本机 80 端口是否被其他进程占用"
+      warn "降级为仅 HTTP（7432 端口）继续，后续可手动执行 certbot 申请"
+    fi
+    # 恢复 nginx
+    if has_cmd systemctl; then
+      systemctl start nginx 2>/dev/null || true
+    fi
+    # 重新加载 nginx 配置（应用 HTTPS server 块）
+    nginx -t 2>&1 && systemctl reload nginx 2>/dev/null || true
   fi
 }
 
@@ -999,31 +1079,41 @@ start_wizard() {
     pm2 start server.js --name rainyun-wizard --cwd "$APP_DIR/deploy/setup-wizard" 2>&1 | tail -5
   pm2 save 2>/dev/null || true
 
-  # 向导通过 Nginx 反代 /setup-wizard/ 路径访问，不需要开放 7432 端口
-  # 向导服务本身只监听 127.0.0.1:7432（仅本地），由 Nginx 转发
+  # 向导通过 Nginx 反代 /setup-wizard/ 路径访问，无需开放 8888 端口到公网
+  # 向导服务本身只监听 127.0.0.1:8888（仅本地），由 Nginx 转发
+  # wizard_url 使用主站端口（7432 HTTP / 7433 HTTPS）+ /setup-wizard/ 路径
   local wizard_url
   if [[ -n "$DOMAIN" ]]; then
     if [[ "$SSL_MODE" == "letsencrypt" || "$SSL_MODE" == "custom" ]]; then
-      wizard_url="https://$DOMAIN/setup-wizard/"
+      wizard_url="https://$DOMAIN:${FRONTEND_SSL_PORT}/setup-wizard/"
     else
-      wizard_url="http://$DOMAIN/setup-wizard/"
+      wizard_url="http://$DOMAIN:${FRONTEND_PORT}/setup-wizard/"
     fi
   else
     local server_ip
     server_ip="$(curl -sS --max-time 5 ifconfig.me 2>/dev/null || echo 'localhost')"
-    wizard_url="http://$server_ip/setup-wizard/"
+    wizard_url="http://$server_ip:${FRONTEND_PORT}/setup-wizard/"
   fi
 
-  # 尝试放行防火墙端口（ufw / firewall-cmd / iptables）
-  info "检查防火墙端口 $WIZARD_PORT ..."
+  # 放行防火墙端口：前端端口 7432（HTTP）/ 7433（HTTPS）
+  # 向导端口 8888 无需放行（仅监听 127.0.0.1，由 Nginx 反代）
+  info "检查防火墙端口 ${FRONTEND_PORT}（前端 HTTP）..."
   if command -v ufw >/dev/null 2>&1; then
-    ufw allow "$WIZARD_PORT/tcp" >/dev/null 2>&1 && info "ufw 已放行 $WIZARD_PORT/tcp" || warn "ufw 放行失败（请手动放行）"
+    ufw allow "${FRONTEND_PORT}/tcp" >/dev/null 2>&1 && info "ufw 已放行 ${FRONTEND_PORT}/tcp"
+    [[ "$SSL_MODE" != "none" ]] && ufw allow "${FRONTEND_SSL_PORT}/tcp" >/dev/null 2>&1
   elif command -v firewall-cmd >/dev/null 2>&1; then
-    firewall-cmd --add-port="$WIZARD_PORT/tcp" --permanent >/dev/null 2>&1 && \
-      firewall-cmd --reload >/dev/null 2>&1 && info "firewall-cmd 已放行 $WIZARD_PORT/tcp" || warn "firewall-cmd 放行失败（请手动放行）"
+    firewall-cmd --add-port="${FRONTEND_PORT}/tcp" --permanent >/dev/null 2>&1
+    [[ "$SSL_MODE" != "none" ]] && firewall-cmd --add-port="${FRONTEND_SSL_PORT}/tcp" --permanent >/dev/null 2>&1
+    firewall-cmd --reload >/dev/null 2>&1
+    info "firewall-cmd 已放行前端端口"
   elif command -v iptables >/dev/null 2>&1; then
-    iptables -C INPUT -p tcp --dport "$WIZARD_PORT" -j ACCEPT 2>/dev/null || \
-      iptables -I INPUT -p tcp --dport "$WIZARD_PORT" -j ACCEPT >/dev/null 2>&1 && info "iptables 已放行 $WIZARD_PORT/tcp" || true
+    iptables -C INPUT -p tcp --dport "${FRONTEND_PORT}" -j ACCEPT 2>/dev/null || \
+      iptables -I INPUT -p tcp --dport "${FRONTEND_PORT}" -j ACCEPT >/dev/null 2>&1
+    [[ "$SSL_MODE" != "none" ]] && {
+      iptables -C INPUT -p tcp --dport "${FRONTEND_SSL_PORT}" -j ACCEPT 2>/dev/null || \
+        iptables -I INPUT -p tcp --dport "${FRONTEND_SSL_PORT}" -j ACCEPT >/dev/null 2>&1
+    }
+    info "iptables 已放行前端端口"
   fi
 
   # 等待向导启动
@@ -1085,8 +1175,9 @@ ${C_CYAN}向导完成后即可正常访问站点：${C_RESET}
 
 ${C_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}
 ${C_BOLD}${C_RED}⚠️  如果无法访问向导，请检查以下三项：${C_RESET}
-${C_YELLOW}1. 云服务商安全组：放行 TCP 80/443 端口（入站规则）${C_RESET}
-${C_YELLOW}   - 向导通过主站 /setup-wizard/ 路径访问，无需开放 7432 端口${C_RESET}
+${C_YELLOW}1. 云服务商安全组：放行 TCP ${FRONTEND_PORT} 端口（HTTP 入站规则）${C_RESET}
+${C_YELLOW}   $([ "$SSL_MODE" != "none" ] && echo "   若配置 SSL，还需放行 TCP ${FRONTEND_SSL_PORT} 端口（HTTPS）")
+${C_YELLOW}   - 向导通过 主站:${FRONTEND_PORT}/setup-wizard/ 路径访问，无需开放 ${WIZARD_PORT} 端口${C_RESET}
 ${C_YELLOW}2. 确认 Nginx 已正常运行：systemctl status nginx${C_RESET}
 ${C_YELLOW}3. 确认向导进程在运行：pm2 logs rainyun-wizard --lines 20${C_RESET}
 ${C_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}
