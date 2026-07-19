@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>雨云服务器分销平台 - 部署向导</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1419;
+      --bg-card: #1a1f29;
+      --bg-input: #0d1117;
+      --border: #2d333b;
+      --border-hover: #3d444d;
+      --text-primary: #e6edf3;
+      --text-secondary: #b1bac4;
+      --text-tertiary: #7d8590;
+      --gold: #d4af37;
+      --gold-light: #f0d068;
+      --green: #3fb950;
+      --red: #f85149;
+      --yellow: #d29922;
+      --blue: #58a6ff;
+      --radius: 6px;
+      --mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.6;
+      font-size: 14px;
+      padding: 24px;
+    }
+    .container { max-width: 920px; margin: 0 auto; }
+
+    /* 顶部标题 */
+    .header {
+      text-align: center;
+      padding: 24px 0 32px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 32px;
+    }
+    .header h1 {
+      font-size: 28px;
+      font-weight: 600;
+      color: var(--gold);
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+    .header p {
+      color: var(--text-tertiary);
+      font-size: 13px;
+      letter-spacing: 0.5px;
+    }
+    .header .version {
+      display: inline-block;
+      padding: 2px 8px;
+      background: rgba(212, 175, 55, 0.1);
+      color: var(--gold-light);
+      border: 1px solid rgba(212, 175, 55, 0.3);
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 11px;
+      margin-left: 8px;
+    }
+
+    /* 步骤指示器 */
+    .steps {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 40px;
+      position: relative;
+    }
+    .steps::before {
+      content: '';
+      position: absolute;
+      top: 18px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--border);
+      z-index: 0;
+    }
+    .step {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+    }
+    .step-circle {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--bg-card);
+      border: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--text-tertiary);
+      transition: all 0.3s;
+    }
+    .step.active .step-circle {
+      border-color: var(--gold);
+      color: var(--gold);
+      background: rgba(212, 175, 55, 0.1);
+    }
+    .step.completed .step-circle {
+      background: var(--green);
+      border-color: var(--green);
+      color: #fff;
+    }
+    .step.error .step-circle {
+      background: var(--red);
+      border-color: var(--red);
+      color: #fff;
+    }
+    .step-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-align: center;
+      white-space: nowrap;
+    }
+    .step.active .step-label { color: var(--gold); font-weight: 600; }
+    .step.completed .step-label { color: var(--green); }
+
+    /* 卡片 */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--text-primary);
+    }
+    .card-desc {
+      color: var(--text-tertiary);
+      font-size: 13px;
+      margin-bottom: 20px;
+    }
+
+    /* 表单 */
+    .form-group { margin-bottom: 16px; }
+    .form-group label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+    .form-group label .required { color: var(--red); margin-left: 2px; }
+    .form-group input[type="text"],
+    .form-group input[type="password"],
+    .form-group input[type="email"],
+    .form-group input[type="number"],
+    .form-group select {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-primary);
+      font-size: 14px;
+      font-family: inherit;
+      transition: border-color 0.2s;
+    }
+    .form-group input:focus,
+    .form-group select:focus {
+      outline: none;
+      border-color: var(--gold);
+    }
+    .form-group .hint {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--text-tertiary);
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .checkbox-group input { width: auto; }
+
+    /* 按钮 */
+    .btn {
+      padding: 10px 20px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg-input);
+      color: var(--text-primary);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    .btn:hover { border-color: var(--border-hover); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary {
+      background: var(--gold);
+      border-color: var(--gold);
+      color: #1a1f29;
+      font-weight: 600;
+    }
+    .btn-primary:hover { background: var(--gold-light); border-color: var(--gold-light); }
+    .btn-secondary { background: transparent; }
+    .btn-success {
+      background: var(--green);
+      border-color: var(--green);
+      color: #fff;
+    }
+    .actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 24px;
+    }
+
+    /* 检测项 */
+    .check-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    .check-item.ok { border-left: 3px solid var(--green); }
+    .check-item.fail { border-left: 3px solid var(--red); }
+    .check-item.warn { border-left: 3px solid var(--yellow); }
+    .check-item .label { display: flex; align-items: center; gap: 10px; }
+    .check-item .name { font-weight: 500; }
+    .check-item .value {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-tertiary);
+    }
+    .check-item .status {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 3px;
+    }
+    .check-item .status.ok { color: var(--green); background: rgba(63, 185, 80, 0.1); }
+    .check-item .status.fail { color: var(--red); background: rgba(248, 81, 73, 0.1); }
+    .check-item .status.warn { color: var(--yellow); background: rgba(210, 153, 34, 0.1); }
+
+    /* 提示 */
+    .alert {
+      padding: 12px 16px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      font-size: 13px;
+    }
+    .alert-info { background: rgba(88, 166, 255, 0.1); border: 1px solid rgba(88, 166, 255, 0.3); color: var(--blue); }
+    .alert-success { background: rgba(63, 185, 80, 0.1); border: 1px solid rgba(63, 185, 80, 0.3); color: var(--green); }
+    .alert-warn { background: rgba(210, 153, 34, 0.1); border: 1px solid rgba(210, 153, 34, 0.3); color: var(--yellow); }
+    .alert-error { background: rgba(248, 81, 73, 0.1); border: 1px solid rgba(248, 81, 73, 0.3); color: var(--red); }
+
+    /* 完成页 */
+    .done-card { text-align: center; padding: 40px 24px; }
+    .done-icon {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 20px;
+      border-radius: 50%;
+      background: var(--green);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      color: #fff;
+    }
+    .done-card h2 { color: var(--green); margin-bottom: 8px; }
+    .done-card .site-url {
+      display: inline-block;
+      padding: 10px 20px;
+      background: var(--bg-input);
+      border: 1px solid var(--gold);
+      border-radius: 4px;
+      font-family: var(--mono);
+      color: var(--gold);
+      margin: 16px 0;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+    .done-card .site-url:hover { background: rgba(212, 175, 55, 0.1); }
+
+    /* 加载动画 */
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* 日志输出 */
+    .log-box {
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 12px;
+      max-height: 240px;
+      overflow-y: auto;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      margin-top: 12px;
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 12px; }
+      .form-row { grid-template-columns: 1fr; }
+      .steps { gap: 4px; }
+      .step-label { font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- 顶部 -->
+    <div class="header">
+      <h1>雨云服务器分销平台 <span class="version">v1.0.0</span></h1>
+      <p>部署向导 · 共 5 步 · 完成后即可访问站点</p>
+    </div>
+
+    <!-- 步骤指示器 -->
+    <div class="steps" id="steps">
+      <div class="step active" data-step="1">
+        <div class="step-circle">1</div>
+        <div class="step-label">环境检测</div>
+      </div>
+      <div class="step" data-step="2">
+        <div class="step-circle">2</div>
+        <div class="step-label">连接数据库</div>
+      </div>
+      <div class="step" data-step="3">
+        <div class="step-circle">3</div>
+        <div class="step-label">域名配置</div>
+      </div>
+      <div class="step" data-step="4">
+        <div class="step-circle">4</div>
+        <div class="step-label">配置管理员</div>
+      </div>
+      <div class="step" data-step="5">
+        <div class="step-circle">5</div>
+        <div class="step-label">启动服务</div>
+      </div>
+    </div>
+
+    <!-- 步骤内容容器 -->
+    <div id="step-content"></div>
+
+    <!-- 操作按钮 -->
+    <div class="actions" id="actions" style="display:none;">
+      <button class="btn btn-secondary" id="btn-prev" onclick="prevStep()">上一步</button>
+      <div>
+        <button class="btn btn-primary" id="btn-next" onclick="nextStep()">下一步</button>
+      </div>
+    </div>
+
+    <!-- 向导令牌输入弹层（首次访问时显示） -->
+    <div id="token-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:1000;align-items:center;justify-content:center;">
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:32px;max-width:460px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.6);">
+        <div style="text-align:center;margin-bottom:20px;">
+          <div style="font-size:32px;color:var(--gold);margin-bottom:8px;">🔐</div>
+          <h2 style="color:var(--gold);font-size:20px;margin-bottom:8px;">向导访问令牌</h2>
+          <p style="color:var(--text-tertiary);font-size:13px;line-height:1.6;">
+            为防止未授权访问，请输入部署脚本控制台显示的向导令牌。<br>
+            令牌仅在本次部署期间有效。
+          </p>
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+          <input type="text" id="token-input" placeholder="粘贴向导令牌（32 位十六进制）"
+            style="width:100%;font-family:var(--mono);font-size:13px;text-align:center;"
+            autocomplete="off" />
+        </div>
+        <div id="token-error" style="color:var(--red);font-size:12px;min-height:18px;margin-bottom:12px;text-align:center;"></div>
+        <button class="btn btn-primary" style="width:100%;" onclick="submitToken()">验证并进入向导</button>
+        <div style="text-align:center;margin-top:16px;color:var(--text-tertiary);font-size:11px;">
+          令牌由 deploy.sh 一键部署脚本生成并显示在控制台
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ============ 状态 ============
+    const state = {
+      currentStep: 1,
+      maxStep: 5,
+      meta: null,
+      envCheck: null,
+      dbTested: false,
+      adminSetup: false,
+      servicesStarted: false,
+      siteUrl: '',
+      wizardToken: '',  // 向导访问令牌（从 sessionStorage 读取）
+    };
+
+    // 从 sessionStorage 加载令牌（同一会话保留，关闭浏览器即失效）
+    state.wizardToken = sessionStorage.getItem('wizardToken') || '';
+
+    // ============ 工具 ============
+    async function api(path, body = null, method = 'POST') {
+      const opts = {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+      };
+      // 所有非 GET 的 /api/wizard/* 请求都附带向导令牌
+      if (state.wizardToken && method !== 'GET' && path.startsWith('/api/wizard/')) {
+        opts.headers['x-wizard-token'] = state.wizardToken;
+      }
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(path, opts);
+      let data;
+      try { data = await res.json(); } catch (_) { data = {}; }
+      return { ok: res.ok, status: res.status, data };
+    }
+
+    function $(sel) { return document.querySelector(sel); }
+    function el(tag, props = {}, ...children) {
+      const e = document.createElement(tag);
+      Object.assign(e, props);
+      for (const c of children) {
+        if (c == null) continue;
+        if (typeof c === 'string') e.appendChild(document.createTextNode(c));
+        else e.appendChild(c);
+      }
+      return e;
+    }
+
+    function setStep(n) {
+      state.currentStep = n;
+      document.querySelectorAll('.step').forEach((s) => {
+        const num = parseInt(s.dataset.step, 10);
+        s.classList.remove('active', 'completed', 'error');
+        if (num < n) s.classList.add('completed');
+        else if (num === n) s.classList.add('active');
+      });
+      renderStep(n);
+    }
+
+    function renderActions({ prev = true, next = true, nextText = '下一步', nextDisabled = false, nextPrimary = true } = {}) {
+      const a = $('#actions');
+      a.style.display = 'flex';
+      const btnPrev = $('#btn-prev');
+      const btnNext = $('#btn-next');
+      btnPrev.style.display = prev ? 'inline-block' : 'none';
+      btnNext.style.display = next ? 'inline-block' : 'none';
+      btnNext.textContent = nextText;
+      btnNext.disabled = nextDisabled;
+      btnNext.className = nextPrimary ? 'btn btn-primary' : 'btn btn-success';
+    }
+
+    function hideActions() { $('#actions').style.display = 'none'; }
+
+    function alertBox(type, msg) {
+      return `<div class="alert alert-${type}">${msg}</div>`;
+    }
+
+    // ============ 加载部署元信息 ============
+    async function loadStatus() {
+      const r = await api('/api/wizard/status', null, 'GET');
+      if (r.ok && r.data.success) {
+        state.meta = r.data.data.meta;
+        state.siteUrl = state.meta.siteUrl;
+        if (r.data.data.done) {
+          // 向导已完成，直接显示完成页
+          state.currentStep = 6;
+          renderDone();
+          return false;
+        }
+      }
+      return true;
+    }
+
+    // ============ 渲染：步骤 1 - 环境检测 ============
+    function renderStep1() {
+      const c = $('#step-content');
+      c.innerHTML = `
+        <div class="card">
+          <div class="card-title">环境检测</div>
+          <div class="card-desc">检测服务器是否满足运行要求，缺失项请先执行 <code>./deploy/deploy.sh</code> 安装</div>
+          <div id="env-checks"><p style="color:var(--text-tertiary);">点击下方按钮开始检测...</p></div>
+        </div>
+      `;
+      hideActions();
+      checkEnv();
+    }
+
+    async function checkEnv() {
+      const box = $('#env-checks');
+      box.innerHTML = `<p style="color:var(--blue);"><span class="spinner"></span>正在检测环境...</p>`;
+      const r = await api('/api/wizard/check-env', {});
+      if (!r.ok || !r.data.success) {
+        box.innerHTML = alertBox('error', `检测失败：${r.data.message || r.status}`);
+        renderActions({ prev: false, next: false });
+        return;
+      }
+      const d = r.data.data;
+      state.envCheck = d;
+      const items = [
+        { key: 'node', name: 'Node.js', required: '>= 18.0 (推荐 22 LTS)' },
+        { key: 'npm', name: 'npm', required: '任意版本' },
+        { key: 'pm2', name: 'PM2', required: '任意版本' },
+        { key: 'mysql', name: 'MySQL', required: '8.0+' },
+        { key: 'redis', name: 'Redis', required: '任意版本' },
+        { key: 'nginx', name: 'Nginx', required: '任意版本' },
+        { key: 'git', name: 'Git', required: '任意版本' },
+        { key: 'appDir', name: '应用目录', required: '存在' },
+        { key: 'envFile', name: '.env 文件', required: '存在' },
+        { key: 'webBuild', name: '前端构建产物', required: '存在' },
+        { key: 'serverBuild', name: '后端构建产物', required: '存在' },
+      ];
+      box.innerHTML = '';
+      for (const it of items) {
+        const c = d.checks[it.key];
+        const cls = c.ok ? 'ok' : 'fail';
+        const statusText = c.ok ? '✓ 通过' : '✗ 缺失';
+        const val = c.version || (c.exists ? '存在' : '不存在') || '';
+        const div = el('div', { className: `check-item ${cls}` });
+        div.innerHTML = `
+          <div class="label">
+            <span class="name">${it.name}</span>
+            <span class="value">${val}</span>
+          </div>
+          <div>
+            <span class="status ${cls}">${statusText}</span>
+          </div>
+        `;
+        box.appendChild(div);
+      }
+
+      if (d.allOk) {
+        box.appendChild(el('div', { className: 'alert alert-success', style: 'margin-top:16px;' },
+          '✓ 环境检测全部通过，可以继续下一步'));
+        renderActions({ prev: false, next: true, nextText: '下一步：连接数据库' });
+      } else {
+        const missingList = d.missing.join('、');
+        box.appendChild(el('div', { className: 'alert alert-warn', style: 'margin-top:16px;' },
+          `⚠ 有 ${d.missing.length} 项未通过：${missingList}。可点击下方按钮重新检测，或强制继续（部分功能可能不可用）`));
+        // 插入重新检测按钮
+        const actions = el('div', { style: 'margin-top:12px;display:flex;gap:8px;' });
+        const btnRetry = el('button', { className: 'btn btn-primary', onclick: () => checkEnv() }, '重新检测');
+        const btnForce = el('button', { className: 'btn btn-secondary', onclick: () => renderActions({ prev: false, next: true, nextText: '强制继续' }) }, '强制继续');
+        actions.appendChild(btnRetry);
+        actions.appendChild(btnForce);
+        box.appendChild(actions);
+      }
+    }
+
+    // ============ 渲染：步骤 2 - 数据库连接 ============
+    function renderStep2() {
+      const c = $('#step-content');
+      const meta = state.meta || {};
+      c.innerHTML = `
+        <div class="card">
+          <div class="card-title">连接数据库</div>
+          <div class="card-desc">填写数据库连接信息并测试连接。密码必填，其他可使用默认值。</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>主机 <span class="required">*</span></label>
+              <input type="text" id="db-host" value="${meta.dbHost || '127.0.0.1'}" />
+            </div>
+            <div class="form-group">
+              <label>端口 <span class="required">*</span></label>
+              <input type="number" id="db-port" value="${meta.dbPort || 2009}" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>用户名 <span class="required">*</span></label>
+              <input type="text" id="db-user" value="${meta.dbUser || 'rainyun'}" />
+            </div>
+            <div class="form-group">
+              <label>数据库名</label>
+              <input type="text" id="db-name" value="${meta.dbName || 'rainyun_reseller'}" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>密码 <span class="required">*</span></label>
+            <input type="password" id="db-password" placeholder="请输入数据库密码" autocomplete="new-password" />
+            <div class="hint">密码不会保存到向导，只会写入 server/.env</div>
+          </div>
+          <div id="db-result"></div>
+        </div>
+      `;
+      renderActions({ prev: true, next: true, nextText: '测试并继续', nextDisabled: true });
+    }
+
+    async function testDb() {
+      const btnNext = $('#btn-next');
+      btnNext.disabled = true;
+      btnNext.innerHTML = '<span class="spinner"></span>测试中...';
+      const body = {
+        host: $('#db-host').value.trim(),
+        port: parseInt($('#db-port').value, 10),
+        user: $('#db-user').value.trim(),
+        password: $('#db-password').value,
+        database: $('#db-name').value.trim(),
+      };
+      if (!body.password) {
+        $('#db-result').innerHTML = alertBox('error', '请输入数据库密码');
+        btnNext.disabled = true;
+        btnNext.textContent = '测试并继续';
+        return;
+      }
+      const r = await api('/api/wizard/test-db', body);
+      btnNext.textContent = '测试并继续';
+      if (r.ok && r.data.success) {
+        const d = r.data.data;
+        let msg = `✓ 连接成功，MySQL ${d.version}，数据库 ${d.database} 可访问`;
+        $('#db-result').innerHTML = alertBox('success', msg);
+
+        // 串接：测试成功后自动写入 .env 并执行 migrate
+        btnNext.innerHTML = '<span class="spinner"></span>迁移数据库...';
+        btnNext.disabled = true;
+        const mr = await api('/api/wizard/migrate-db', {});
+        if (mr.ok && mr.data.success) {
+          $('#db-result').innerHTML += alertBox('success', '✓ 数据库迁移 + Seed 完成');
+          state.dbTested = true;
+          btnNext.disabled = false;
+          btnNext.textContent = '下一步：域名配置';
+        } else {
+          $('#db-result').innerHTML += alertBox('error', `数据库迁移失败：${mr.data.message}<br><pre style="margin-top:8px;font-size:11px;">${(mr.data.data && mr.data.data.stderr || mr.data.data && mr.data.data.stdout || '').slice(-500)}</pre>`);
+          btnNext.disabled = true;
+          btnNext.textContent = '重新测试';
+        }
+      } else {
+        // 连接或库存在性检查失败
+        const msg = r.data.message || '连接失败';
+        let extra = '';
+        if (r.data.data && r.data.data.hint) {
+          extra = `<div style="margin-top:8px;color:var(--text-tertiary);font-size:12px;">💡 ${r.data.data.hint}</div>`;
+        }
+        $('#db-result').innerHTML = alertBox('error', `连接失败：${msg}${extra}`);
+        btnNext.disabled = true;
+      }
+    }
+
+    // ============ 渲染：步骤 3 - 域名配置 ============
+    function renderStep3() {
+      const c = $('#step-content');
+      const meta = state.meta || {};
+      c.innerHTML = `
+        <div class="card">
+          <div class="card-title">域名配置</div>
+          <div class="card-desc">填写站点访问域名。已部署的会预填，可二次修改。系统会自动检测域名是否解析到本机。</div>
+          <div class="form-group">
+            <label>域名 <span class="required">*</span></label>
+            <input type="text" id="domain-input" value="${meta.domain || ''}" placeholder="例如：example.com" />
+            <div class="hint">不要包含 http:// 或 https://</div>
+          </div>
+          <div class="form-group">
+            <label>SSL 模式</label>
+            <select id="ssl-mode">
+              <option value="none" ${meta.sslMode === 'none' || !meta.sslMode ? 'selected' : ''}>不启用 SSL（仅 HTTP）</option>
+              <option value="existing" ${meta.sslMode === 'existing' ? 'selected' : ''}>使用已有证书（部署时已配置）</option>
+              <option value="letsencrypt" ${meta.sslMode === 'letsencrypt' ? 'selected' : ''}>自动申请 Let's Encrypt（需 80 端口可访问）</option>
+            </select>
+          </div>
+          <div class="checkbox-group">
+            <input type="checkbox" id="skip-check" />
+            <label for="skip-check" style="margin:0;">跳过 DNS 解析检测（强制保存，适用于 DNS 未生效但已确认解析正确的情况）</label>
+          </div>
+          <div id="domain-result"></div>
+        </div>
+      `;
+      renderActions({ prev: true, next: true, nextText: '保存并继续' });
+    }
+
+    async function saveDomain() {
+      const btnNext = $('#btn-next');
+      btnNext.disabled = true;
+      btnNext.innerHTML = '<span class="spinner"></span>保存中...';
+      const body = {
+        domain: $('#domain-input').value.trim(),
+        sslMode: $('#ssl-mode').value,
+        skipCheck: $('#skip-check').checked,
+      };
+      if (!body.domain) {
+        $('#domain-result').innerHTML = alertBox('error', '请输入域名');
+        btnNext.disabled = false;
+        btnNext.textContent = '保存并继续';
+        return;
+      }
+      const r = await api('/api/wizard/configure-domain', body);
+      btnNext.textContent = '保存并继续';
+      if (r.ok && r.data.success) {
+        const d = r.data.data;
+        state.siteUrl = d.siteUrl;
+        state.meta = { ...state.meta, domain: d.domain, sslMode: d.sslMode, siteUrl: d.siteUrl };
+        $('#domain-result').innerHTML = alertBox('success',
+          `✓ 域名配置已保存，站点 URL：<code>${d.siteUrl}</code>${d.nginxUpdated ? '<br>Nginx 配置已更新' : ''}`);
+        btnNext.disabled = false;
+        btnNext.textContent = '下一步：配置管理员';
+      } else {
+        $('#domain-result').innerHTML = alertBox('error', `保存失败：${r.data.message}`);
+        btnNext.disabled = false;
+      }
+    }
+
+    // ============ 渲染：步骤 4 - 配置管理员 ============
+    function renderStep4() {
+      const c = $('#step-content');
+      c.innerHTML = `
+        <div class="card">
+          <div class="card-title">配置超级管理员账号</div>
+          <div class="card-desc">这是建站者账号，拥有最高权限。请妥善保管密码。</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>用户名 <span class="required">*</span></label>
+              <input type="text" id="admin-username" value="admin" placeholder="3-32 位字母数字下划线" />
+            </div>
+            <div class="form-group">
+              <label>昵称</label>
+              <input type="text" id="admin-nickname" value="超级管理员" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>邮箱</label>
+            <input type="email" id="admin-email" placeholder="可选，用于密码找回" />
+          </div>
+          <div class="form-group">
+            <label>密码 <span class="required">*</span></label>
+            <input type="password" id="admin-password" placeholder="至少 8 位，以字母开头，含数字和特殊字符" autocomplete="new-password" />
+            <div class="hint">密码将以 bcrypt 12 轮哈希存储，不会明文保存</div>
+          </div>
+          <div class="form-group">
+            <label>确认密码 <span class="required">*</span></label>
+            <input type="password" id="admin-password2" placeholder="再次输入密码" autocomplete="new-password" />
+          </div>
+          <div id="admin-result"></div>
+        </div>
+      `;
+      renderActions({ prev: true, next: true, nextText: '创建账号' });
+    }
+
+    async function setupAdmin() {
+      const btnNext = $('#btn-next');
+      const pwd = $('#admin-password').value;
+      const pwd2 = $('#admin-password2').value;
+      if (pwd !== pwd2) {
+        $('#admin-result').innerHTML = alertBox('error', '两次输入的密码不一致');
+        return;
+      }
+      btnNext.disabled = true;
+      btnNext.innerHTML = '<span class="spinner"></span>创建中...';
+      const body = {
+        username: $('#admin-username').value.trim(),
+        password: pwd,
+        email: $('#admin-email').value.trim(),
+        nickname: $('#admin-nickname').value.trim() || '超级管理员',
+      };
+      const r = await api('/api/wizard/setup-admin', body);
+      btnNext.textContent = '创建账号';
+      if (r.ok && r.data.success) {
+        state.adminSetup = true;
+        const d = r.data.data;
+        const actionText = d.action === 'updated' ? '已更新现有管理员密码' : '已创建超级管理员账号';
+        $('#admin-result').innerHTML = alertBox('success', `✓ ${actionText}：用户名 <code>${d.username}</code>`);
+        btnNext.disabled = false;
+        btnNext.textContent = '下一步：启动服务';
+      } else {
+        $('#admin-result').innerHTML = alertBox('error', `创建失败：${r.data.message}`);
+        btnNext.disabled = false;
+      }
+    }
+
+    // ============ 渲染：步骤 5 - 启动服务 ============
+    function renderStep5() {
+      const c = $('#step-content');
+      c.innerHTML = `
+        <div class="card">
+          <div class="card-title">启动前后端服务</div>
+          <div class="card-desc">最后一步：通过 PM2 启动后端服务，前端由 Nginx 直接提供静态文件。</div>
+          ${alertBox('info', '点击"启动服务"按钮，系统将：\n1. 使用 PM2 启动后端 (rainyun-api)\n2. 保存 PM2 进程列表\n3. 健康检查 (http://127.0.0.1:1001/health)\n4. 标记向导完成，并自动关闭向导服务')}
+          <div id="start-result"></div>
+        </div>
+      `;
+      renderActions({ prev: true, next: true, nextText: '启动服务' });
+    }
+
+    async function startServices() {
+      const btnNext = $('#btn-next');
+      btnNext.disabled = true;
+      btnNext.innerHTML = '<span class="spinner"></span>启动中...';
+      $('#start-result').innerHTML = alertBox('info', '正在启动后端服务，请稍候...');
+      const r = await api('/api/wizard/start-services', {});
+      btnNext.textContent = '启动服务';
+      if (r.ok && r.data.success) {
+        const d = r.data.data;
+        state.servicesStarted = true;
+        if (d.backendHealthy) {
+          $('#start-result').innerHTML = alertBox('success',
+            `✓ 后端启动成功并通过健康检查<br>PM2 进程已保存<br>站点 URL：<code>${d.siteUrl}</code><br><span style="color:var(--gold);">🔒 向导服务将在 3 秒后自动关闭</span>`);
+          btnNext.textContent = '完成';
+          btnNext.disabled = false;
+          btnNext.onclick = () => { renderDone(); };
+        } else {
+          $('#start-result').innerHTML = alertBox('warn',
+            `⚠ 后端已启动但健康检查未通过<br>请检查日志：<code>pm2 logs rainyun-api</code><br>健康检查输出：<pre>${d.healthOutput || ''}</pre><br><span style="color:var(--gold);">🔒 向导服务将在 3 秒后自动关闭</span>`);
+          btnNext.disabled = false;
+          btnNext.textContent = '查看完成页';
+          btnNext.onclick = () => { renderDone(); };
+        }
+      } else {
+        $('#start-result').innerHTML = alertBox('error', `启动失败：${r.data.message}<br><pre>${(r.data.data && r.data.data.stderr) || ''}</pre>`);
+        btnNext.disabled = false;
+      }
+    }
+
+    // ============ 完成页 ============
+    function renderDone() {
+      document.querySelectorAll('.step').forEach((s) => {
+        s.classList.remove('active');
+        s.classList.add('completed');
+      });
+      $('#step-content').innerHTML = `
+        <div class="card done-card">
+          <div class="done-icon">✓</div>
+          <h2>部署完成！</h2>
+          <p style="color:var(--text-secondary);">您可以访问以下地址进入系统</p>
+          <a class="site-url" href="${state.siteUrl || 'http://localhost'}" target="_blank">${state.siteUrl || 'http://localhost'}</a>
+          <div style="margin-top:24px;color:var(--text-tertiary);font-size:13px;">
+            <p>管理员登录：<code>${state.meta && state.meta.siteUrl ? state.meta.siteUrl.replace(/^https?:\/\//, '') + '/admin' : '/admin'}</code></p>
+            <p style="margin-top:8px;color:var(--gold);">🔒 向导服务已自动关闭（PM2 进程已删除），外部无法再访问本向导页面</p>
+            <p style="margin-top:8px;">如需重新配置，请通过 SSH 登录服务器，删除 <code>deploy/.wizard-done</code> 文件后执行 <code>pm2 restart rainyun-wizard</code> 重启向导</p>
+          </div>
+        </div>
+      `;
+      hideActions();
+    }
+
+    // ============ 步骤切换 ============
+    function renderStep(n) {
+      switch (n) {
+        case 1: renderStep1(); break;
+        case 2: renderStep2(); break;
+        case 3: renderStep3(); break;
+        case 4: renderStep4(); break;
+        case 5: renderStep5(); break;
+        case 6: renderDone(); break;
+      }
+    }
+
+    async function nextStep() {
+      // 根据当前步骤执行特定操作
+      if (state.currentStep === 1) {
+        // 环境检测：直接跳到步骤 2
+        setStep(2);
+        return;
+      }
+      if (state.currentStep === 2) {
+        if (!state.dbTested) {
+          await testDb();
+          return;
+        }
+        setStep(3);
+        return;
+      }
+      if (state.currentStep === 3) {
+        await saveDomain();
+        return;
+      }
+      if (state.currentStep === 4) {
+        if (!state.adminSetup) {
+          await setupAdmin();
+          return;
+        }
+        setStep(5);
+        return;
+      }
+      if (state.currentStep === 5) {
+        if (!state.servicesStarted) {
+          await startServices();
+          return;
+        }
+        renderDone();
+        return;
+      }
+    }
+
+    function prevStep() {
+      if (state.currentStep > 1) setStep(state.currentStep - 1);
+    }
+
+    // ============ 向导令牌：显示弹层并验证 ============
+    function showTokenOverlay() {
+      $('#token-overlay').style.display = 'flex';
+      $('#token-error').textContent = '';
+      const inp = $('#token-input');
+      inp.value = state.wizardToken || '';
+      setTimeout(() => inp.focus(), 50);
+    }
+
+    function hideTokenOverlay() {
+      $('#token-overlay').style.display = 'none';
+    }
+
+    async function submitToken() {
+      const inp = $('#token-input');
+      const err = $('#token-error');
+      const token = (inp.value || '').trim();
+      if (!token) {
+        err.textContent = '请输入向导令牌';
+        return;
+      }
+      // 调用验证接口
+      const r = await api('/api/wizard/verify-token', { token });
+      if (r.ok && r.data.success) {
+        state.wizardToken = token;
+        sessionStorage.setItem('wizardToken', token);
+        hideTokenOverlay();
+        // 加载状态并启动向导
+        const cont = await loadStatus();
+        if (cont) setStep(1);
+      } else {
+        err.textContent = r.data.message || '令牌错误';
+      }
+    }
+
+    // 回车键提交令牌
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && $('#token-overlay').style.display !== 'none' && $('#token-overlay').style.display !== '') {
+        e.preventDefault();
+        submitToken();
+      }
+    });
+
+    // ============ 启动 ============
+    (async () => {
+      // 先尝试加载部署元信息（GET 接口不需要 token）
+      await loadStatus();
+      // 如果本地已有 token，先尝试验证；验证失败则显示弹层
+      if (state.wizardToken) {
+        const r = await api('/api/wizard/verify-token', { token: state.wizardToken });
+        if (r.ok && r.data.success) {
+          // token 有效，直接进入向导
+          if (state.currentStep !== 6) setStep(1);
+          return;
+        }
+      }
+      // 没有 token 或 token 无效，显示弹层
+      showTokenOverlay();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+# ============================================================================
+# KeYuCloud - 根目录 .gitignore
+# ============================================================================
+
+# ===== Node.js =====
+node_modules/
+**/node_modules/
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# ===== 构建产物 =====
+**/dist/
+**/build/
+*.tsbuildinfo
+server/dist/
+web/dist/
+web/dist-ssr/
+
+# ===== 环境配置（含敏感信息，禁止提交）=====
+.env
+.env.*
+.env.local
+.env.*.local
+!.env.example
+server/.env
+web/.env
+
+# ===== 数据库文件 =====
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+server/prisma/dev.db
+server/prisma/*.db
+
+# ===== 日志文件 =====
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+*.pid
+*.seed
+*.pid.lock
+
+# ===== 上传文件（用户数据）=====
+server/uploads/
+uploads/
+
+# ===== 部署运行时文件 =====
+deploy/.deploy-meta.json
+deploy/.wizard-done
+deploy/setup-wizard/node_modules/
+
+# ===== IDE / 编辑器 =====
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===== 操作系统 =====
+.DS_Store
+Desktop.ini
+
+# ===== 测试相关（不发布到仓库）=====
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+playwright/.cache/
+screenshots/
+*_test.js
+*_test.py
+api_test.js
+e2e_test.py
+page_test*.js
+page_test*.json
+ui_test.js
+
+# ===== 临时文件 =====
+*.tmp
+*.bak
+*.cache
+.tmp/
+tmp/
+
+# ===== 项目分析文档（开发期使用，不发布）=====
+docs/官方对比分析计划.md

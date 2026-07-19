@@ -1,0 +1,26 @@
+# Node.js
+node_modules/
+dist/
+*.tsbuildinfo
+
+# 数据库
+dev.db
+dev.db-journal
+*.sqlite
+*.sqlite3
+
+# 日志
+*.log
+logs/
+
+# 敏感配置文件（禁止提交，仅保留 .env.example 模板）
+.env
+.env.*
+!.env.example
+
+# 上传文件
+uploads/
+
+# 临时
+*.tmp
+*.bak

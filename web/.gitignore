@@ -1,0 +1,17 @@
+# Node.js
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# 日志
+*.log
+npm-debug.log*
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+
+# 临时
+*.tmp

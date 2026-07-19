@@ -1,0 +1,661 @@
+// ========================================
+// Element Plus 主题覆盖（去 AI 味版）
+// 日间玫瑰粉 / 夜间烟紫 + 克制玻璃质感
+// ========================================
+
+:root {
+  // 主色（玫瑰粉，与 variables.scss 对齐）
+  --el-color-primary: #d4798e;
+  --el-color-primary-light-3: #c48a9e;
+  --el-color-primary-light-5: #d4b3c2;
+  --el-color-primary-light-7: #ebd7df;
+  --el-color-primary-light-8: #f5ebef;
+  --el-color-primary-light-9: #faf5f6;
+  --el-color-primary-dark-2: #b85f76;
+
+  // 状态色
+  --el-color-success: #16a34a;
+  --el-color-warning: #d97706;
+  --el-color-danger: #dc2626;
+  --el-color-info: #2563eb;
+
+  // 圆角
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 4px;
+
+  // 背景对齐
+  --el-bg-color: var(--bg-elevated);
+  --el-bg-color-page: var(--bg-base);
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-secondary);
+  --el-text-color-secondary: var(--text-tertiary);
+  --el-border-color: var(--border-base);
+  --el-border-color-light: var(--border-light);
+  --el-fill-color: var(--bg-subtle);
+  --el-fill-color-light: var(--bg-subtle);
+  --el-fill-color-blank: var(--bg-elevated);
+}
+
+// 夜间模式（烟紫）
+html.dark,
+:root[data-theme='dark'] {
+  --el-color-primary: #9d8ec7;
+  --el-color-primary-light-3: #b3a5d8;
+  --el-color-primary-light-5: #5c4f6e;
+  --el-color-primary-light-7: #3d3548;
+  --el-color-primary-light-9: #1f1a24;
+  --el-color-primary-dark-2: #b3a5d8;
+
+  --el-color-success: #4ade80;
+  --el-color-warning: #facc15;
+  --el-color-danger: #f87171;
+  --el-color-info: #60a5fa;
+
+  --el-bg-color: #18181a;
+  --el-bg-color-page: #0f0f10;
+  --el-bg-color-overlay: #1f1f22;
+  --el-text-color-primary: #ededed;
+  --el-text-color-regular: #a8a8a8;
+  --el-text-color-secondary: #6b6b6b;
+  --el-border-color: #28282c;
+  --el-border-color-light: #1f1f22;
+  --el-fill-color: #1f1f22;
+  --el-fill-color-light: #1f1f22;
+  --el-fill-color-blank: #18181a;
+  --el-mask-color: rgba(0, 0, 0, 0.7);
+}
+
+// ============ 组件深度覆盖（克制玻璃拟态）============
+
+// 主按钮：纯色 + 中性阴影（去渐变去染色）
+.el-button--primary {
+  background: var(--gold-500) !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--text-inverse) !important;
+  transition: all 0.2s var(--ease-out-expo);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+
+  &:hover,
+  &:focus {
+    background: var(--gold-600) !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  }
+
+  &:focus {
+    box-shadow: var(--focus-ring);
+  }
+}
+
+// 夜间模式主按钮阴影（中性黑）
+:root[data-theme='dark'] .el-button--primary {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  &:hover {
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  }
+}
+
+// 默认按钮：简约描边（去玻璃，更克制）
+.el-button:not(.el-button--primary):not(.el-button--text):not(.el-button--link) {
+  background: transparent;
+  border: 1px solid var(--border-base);
+  border-radius: 8px;
+  color: var(--text-primary);
+  transition: all 0.2s var(--ease-out-expo);
+
+  &:hover {
+    border-color: var(--gold-400);
+    color: var(--text-gold);
+    background: var(--bg-hover);
+  }
+}
+
+// ========================================
+// 管理后台统一按钮系统（.admin-btn 系列）
+// 替代散落各页面的 el-button link/type="primary" 写法
+// 高度统一、颜色克制、hover 金色高亮
+// ========================================
+.admin-btn {
+  height: 34px !important;
+  padding: 0 14px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.3px;
+  border-radius: 4px !important;
+  background: var(--bg-subtle) !important;
+  border: 1px solid var(--border-base) !important;
+  color: var(--text-secondary) !important;
+  transition: all 0.2s var(--ease-out-expo) !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  line-height: 1;
+
+  .el-icon {
+    font-size: 13px;
+    margin-right: 2px;
+  }
+
+  &:hover,
+  &:focus {
+    background: rgba(212, 121, 142, 0.08) !important;
+    border-color: var(--gold-300) !important;
+    color: var(--gold-500) !important;
+    outline: none;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  // 主操作变体：金色填充（保存/确认/提交）
+  &.admin-btn-primary {
+    background: var(--gold-500) !important;
+    border-color: transparent !important;
+    color: var(--text-inverse) !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+
+    &:hover,
+    &:focus {
+      background: var(--gold-600) !important;
+      border-color: transparent !important;
+      color: var(--text-inverse) !important;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+    }
+  }
+
+  // 警告变体：黄色描边（下架/取消置顶）
+  &.admin-btn-warn {
+    color: var(--warning) !important;
+    border-color: rgba(255, 193, 7, 0.35) !important;
+
+    &:hover,
+    &:focus {
+      background: rgba(255, 193, 7, 0.1) !important;
+      border-color: var(--warning) !important;
+      color: var(--warning) !important;
+    }
+  }
+
+  // 成功变体：绿色描边（上架等成功操作）
+  &.admin-btn-success {
+    color: var(--success) !important;
+    border-color: rgba(76, 175, 80, 0.35) !important;
+
+    &:hover,
+    &:focus {
+      background: rgba(76, 175, 80, 0.1) !important;
+      border-color: var(--success) !important;
+      color: var(--success) !important;
+    }
+  }
+
+  // 信息变体：灰色描边（重置密码/次要操作）
+  &.admin-btn-info {
+    color: var(--text-tertiary) !important;
+    border-color: var(--border-base) !important;
+
+    &:hover,
+    &:focus {
+      background: var(--bg-hover) !important;
+      border-color: var(--text-tertiary) !important;
+      color: var(--text-primary) !important;
+    }
+  }
+
+  // 危险变体：红色描边（删除/重建面板）
+  &.admin-btn-danger {
+    color: var(--danger) !important;
+    border-color: rgba(244, 67, 54, 0.35) !important;
+
+    &:hover,
+    &:focus {
+      background: rgba(244, 67, 54, 0.1) !important;
+      border-color: var(--danger) !important;
+      color: var(--danger) !important;
+    }
+  }
+
+  // 紧凑变体：表格行内（26px）
+  &.admin-btn-sm {
+    height: 26px !important;
+    padding: 0 10px !important;
+    font-size: 11px !important;
+
+    .el-icon {
+      font-size: 11px;
+      margin-right: 2px;
+    }
+  }
+
+  // 中等变体：筛选栏、卡片头部（30px）
+  &.admin-btn-md {
+    height: 30px !important;
+    padding: 0 12px !important;
+  }
+
+  // 大尺寸变体：页头主操作（38px）
+  &.admin-btn-lg {
+    height: 38px !important;
+    padding: 0 18px !important;
+    font-size: 13px !important;
+  }
+}
+
+// 表格行内 / 工具栏多个 admin-btn 之间的间距
+// Element Plus 默认 .el-button + .el-button { margin-left: 12px }，但与 admin-btn 的 padding 叠加会显挤
+// 统一改为 6px，紧凑且清晰；表格内多按钮容器可再用 .row-actions flex gap 控制
+.admin-btn + .admin-btn {
+  margin-left: 6px !important;
+}
+
+// 表格行内多按钮容器：自动换行 + gap（用于操作列按钮数 ≥ 3 的场景）
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  .admin-btn + .admin-btn {
+    margin-left: 0 !important;
+  }
+}
+
+// 卡片：克制玻璃（saturate 120%，圆角 12px）
+.el-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+  transition: border-color 0.2s var(--ease-out-expo), box-shadow 0.2s var(--ease-out-expo);
+}
+
+// 表格：透明背景 + 虚线分隔
+.el-table {
+  background: transparent;
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: transparent;
+  --el-table-border-color: var(--border-base);
+  --el-table-header-text-color: var(--text-tertiary);
+  --el-table-text-color: var(--text-primary);
+
+  th.el-table__cell {
+    border-bottom: 1px solid var(--border-base) !important;
+    font-weight: 500;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-family: 'JetBrains Mono', monospace;
+    background: transparent !important;
+  }
+
+  .el-table__cell {
+    border-bottom: 1px dashed var(--border-light);
+    background: transparent !important;
+  }
+
+  // 行 hover：淡玻璃
+  tbody tr:hover > td.el-table__cell {
+    background: var(--glass-bg-subtle) !important;
+  }
+}
+
+// 输入框：克制玻璃 + focus 光晕
+.el-input__wrapper,
+.el-textarea__inner {
+  background-color: var(--glass-bg-subtle) !important;
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  box-shadow: 0 0 0 1px var(--glass-border) inset !important;
+  border-radius: 8px;
+  transition: all 0.2s var(--ease-out-expo);
+
+  &:hover {
+    box-shadow: 0 0 0 1px var(--gold-300) inset !important;
+  }
+
+  &.is-focus {
+    box-shadow: 0 0 0 1px var(--gold-400) inset, var(--focus-ring) !important;
+  }
+}
+
+.el-input__inner,
+.el-textarea__inner {
+  color: var(--text-primary) !important;
+  font-family: inherit;
+
+  &::placeholder {
+    color: var(--text-tertiary) !important;
+  }
+}
+
+.el-select__wrapper {
+  background-color: var(--glass-bg-subtle) !important;
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  box-shadow: 0 0 0 1px var(--glass-border) inset !important;
+  border-radius: 8px;
+}
+
+// 菜单：透明
+.el-menu {
+  background: transparent;
+  border-right: none;
+}
+
+// 对话框：克制玻璃（saturate 120%）
+.el-dialog {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+}
+
+.el-overlay {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+// 分页：简约
+.el-pagination {
+  --el-pagination-bg-color: transparent;
+  --el-pagination-button-bg-color: var(--glass-bg-subtle);
+  --el-pagination-hover-color: var(--gold-400);
+
+  .el-pager li,
+  .btn-prev,
+  .btn-next {
+    border-radius: 8px;
+    background: var(--glass-bg-subtle) !important;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+
+    &.is-active {
+      background: var(--gold-500) !important;
+      color: var(--text-inverse) !important;
+    }
+  }
+}
+
+// 标签：克制描边
+.el-tag {
+  border-radius: 8px;
+  font-weight: 500;
+  background: var(--glass-bg-subtle);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  border: 1px solid var(--glass-border);
+}
+
+.el-tag--gold {
+  background: var(--gold-500);
+  color: var(--text-inverse);
+  border: none;
+}
+
+// 表单标签
+.el-form-item__label {
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+// 开关：粉/紫
+.el-switch.is-checked .el-switch__core {
+  background-color: var(--gold-500);
+  border-color: var(--gold-500);
+}
+
+// 单选/多选
+.el-radio__input.is-checked .el-radio__inner,
+.el-checkbox__input.is-checked .el-checkbox__inner {
+  background-color: var(--gold-500);
+  border-color: var(--gold-500);
+}
+
+.el-radio__input.is-checked + .el-radio__label,
+.el-checkbox__input.is-checked + .el-checkbox__label {
+  color: var(--text-primary);
+}
+
+// Dropdown：克制玻璃（saturate 120%）
+.el-dropdown-menu {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+}
+
+// Tabs
+.el-tabs__item.is-active {
+  color: var(--gold-500);
+}
+
+.el-tabs__active-bar {
+  background-color: var(--gold-500);
+}
+
+// Drawer：克制玻璃（saturate 120%）
+.el-drawer {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  border-left: 1px solid var(--glass-border);
+}
+
+// ============ ElMessageBox 主题适配 ============
+.el-message-box {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+  padding: 20px 24px;
+
+  // 标题：加重，主色
+  .el-message-box__title {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 16px;
+    letter-spacing: -0.1px;
+  }
+
+  // 内容：清晰可读
+  .el-message-box__content {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 12px 0 4px;
+  }
+
+  // 头部
+  .el-message-box__header {
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border-light);
+    margin-bottom: 8px;
+  }
+
+  // 关闭按钮
+  .el-message-box__headerbtn .el-message-box__close {
+    color: var(--text-tertiary);
+
+    &:hover {
+      color: var(--gold-500);
+    }
+  }
+
+  // 底部按钮区
+  .el-message-box__btns {
+    padding-top: 16px;
+    border-top: 1px solid var(--border-light);
+    margin-top: 12px;
+
+    .el-button {
+      border-radius: 8px;
+      padding: 9px 20px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+  }
+
+  // 状态图标使用主色
+  .el-message-box__status {
+    color: var(--gold-500);
+
+    &.el-message-box-icon--warning { color: var(--warning); }
+    &.el-message-box-icon--error { color: var(--danger); }
+    &.el-message-box-icon--success { color: var(--success); }
+    &.el-message-box-icon--info { color: var(--gold-500); }
+  }
+}
+
+// ============ ElMessage 主题适配 ============
+.el-message {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  box-shadow: var(--glass-shadow);
+  padding: 12px 18px;
+  min-width: 280px;
+
+  .el-message__content {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  &.el-message--success {
+    border-color: var(--success);
+    .el-message__icon { color: var(--success); }
+  }
+  &.el-message--warning {
+    border-color: var(--warning);
+    .el-message__icon { color: var(--warning); }
+  }
+  &.el-message--error {
+    border-color: var(--danger);
+    .el-message__icon { color: var(--danger); }
+  }
+  &.el-message--info {
+    border-color: var(--border-base);
+    .el-message__icon { color: var(--gold-500); }
+  }
+}
+
+// ============ ElNotification 主题适配 ============
+.el-notification {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+
+  .el-notification__title {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+  .el-notification__content {
+    color: var(--text-secondary);
+  }
+}
+
+// ============ 自定义对话框主题（keke-confirm-box）============
+// 配合 ElMessageBox.confirm / alert 使用
+.el-message-box.keke-confirm-box {
+  width: 440px;
+  max-width: calc(100vw - 32px);
+
+  .el-message-box__header {
+    border-bottom: 1px solid var(--border-light);
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+  }
+
+  .el-message-box__title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.1px;
+  }
+
+  .el-message-box__content {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.65;
+    padding: 4px 0 0;
+  }
+
+  .el-message-box__btns {
+    padding-top: 16px;
+    margin-top: 16px;
+    border-top: 1px solid var(--border-light);
+
+    .el-button {
+      min-width: 90px;
+      border-radius: 8px;
+      padding: 9px 20px;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.3px;
+    }
+  }
+}
+
+// 同步结果展示
+.sync-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 0 0;
+}
+
+.sync-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  transition: border-color 0.2s;
+
+  &:hover {
+    border-color: var(--gold-300);
+  }
+
+  .sync-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    letter-spacing: 0.3px;
+  }
+
+  .sync-value {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.3px;
+
+    &.text-success { color: var(--success); }
+    &.text-warning { color: var(--warning); }
+    &.text-tertiary { color: var(--text-tertiary); }
+  }
+}

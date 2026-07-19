@@ -1,0 +1,548 @@
+// 雨云服务器二次售卖系统 - 数据模型（MySQL 8.0+）
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "mysql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// ============ 用户体系 ============
+
+model User {
+  id              Int      @id @default(autoincrement())
+  phone           String   @unique
+  email           String?  @unique
+  passwordHash    String
+  nickname        String?
+  avatar          String?
+  balance         Decimal  @default(0) @db.Decimal(10, 2)
+  vipLevel        Int      @default(0)                                       // 0普通 1银 2金 3钻
+  status          String   @default("ACTIVE")                                // ACTIVE/BANNED
+  isRealname      Boolean  @default(false)
+  realnameInfo    String?                                                   // JSON: {name, idCard(masked)}
+  inviteCode      String   @unique @default(uuid())
+  invitedBy       Int?                                                       // 邀请人 user.id
+  inviteCount     Int      @default(0)
+  
+  // 雨云 panel_user 同步
+  panelUserName   String?  @unique                                           // pu_{user_id}
+  panelUserStatus String   @default("PENDING")                               // PENDING/CREATED/FAILED
+  panelUserSyncedAt DateTime?
+  
+  // 时间
+  lastLoginAt     DateTime?
+  lastLoginIp     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  orders          Order[]
+  userProducts    UserProduct[]
+  tickets         Ticket[]
+  balanceTxns     BalanceTransaction[]
+  coupons         UserCoupon[]
+  notifications   Notification[]
+  
+  @@index([phone])
+  @@index([invitedBy])
+}
+
+// ============ 管理员体系 ============
+
+model Admin {
+  id            Int      @id @default(autoincrement())
+  username      String   @unique
+  passwordHash  String
+  nickname      String?
+  role          String   @default("OPERATOR")                                // SUPER_ADMIN/ADMIN/OPERATOR/FINANCE/SUPPORT/TECH
+  permissions   String?                                                     // JSON 细粒度权限
+  status        String   @default("ACTIVE")                                  // ACTIVE/DISABLED
+  email         String?  @unique
+  qq            String?                                                     // QQ号，用于拉取头像和昵称
+  avatarUrl     String?  @db.Text                                            // 头像 URL（QQ 头像或自定义）
+  lastLoginAt   DateTime?
+  lastLoginIp   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  auditLogs     AdminAuditLog[]
+  ticketAssigns Ticket[] @relation("TicketAssignee")
+  balanceAdjust BalanceTransaction[] @relation("AdminAdjust")
+  smtpUpdates   SmtpConfig[]
+  smsUpdates    SmsConfig[]
+  rainyunConfigUpdates RainyunConfig[]
+  
+  @@index([username])
+}
+
+// ============ 商品体系 ============
+
+model Product {
+  id              Int      @id @default(autoincrement())
+  name            String                                                     // 自定义商品名
+  description     String?  @db.Text
+  upstreamPlanId  Int                                                        // 雨云套餐 ID
+  upstreamPlanName String?                                                   // 上游套餐名快照
+  category        String   @default("RCS")                                   // 品类: RCS
+  zone            String?                                                    // 区域
+  zoneName        String?                                                    // 区域名
+  cpu             Int?
+  memory          Int?                                                       // GB（业务层统一使用 GB，雨云上游返回 MB 时由同步逻辑换算）
+  disk            Int?                                                       // GB
+  bandwidth       Int?                                                       // Mbps
+  traffic         Int?                                                       // GB
+  trafficType     String?  @default("unlimited")                              // 流量类型：unlimited=无限流量（默认）/ stacked=叠加流量（宁波区域不清零）
+  upstreamPrices  String?                                                    // JSON: {"1":10,"3":28,"6":55,"12":100} 上游机器价快照（不含 IP）
+  markupRate      Decimal  @default(-0.10) @db.Decimal(4, 3)                 // 优惠率：负=优惠(-0.10=9折) / 0=原价 / 正=加价
+  prices          String?                                                    // JSON: {"1":11.5,"3":32.2,...} 售价（机器部分）
+  // ===== IP 选项快照（机器价不含 IP，IP 单独计算） =====
+  upstreamIpPrices  String?  @db.Text                                        // JSON: {"":5,"hk_ddosip":30,"ipv6":0} 上游 IP 月价
+  upstreamIpSelling String?  @db.Text                                        // JSON: ["","hk_ddosip","ipv6"] 在售 IP 类型
+  ipPrices          String?  @db.Text                                        // JSON: 按优惠率重算后的 IP 售价
+  defaultIpType     String?  @default("")                                    // 默认选中的 IP 类型（空串=默认IPv4）
+  // ===== 磁盘选项快照 =====
+  upstreamDiskPrices  String?  @db.Text                                      // JSON: {"chdd":0.2,"ssd":0.4} 上游磁盘每GB月价
+  upstreamDiskSizes   String?  @db.Text                                      // JSON: {"chdd":30} 套餐内含GB
+  upstreamDiskSelling String?  @db.Text                                      // JSON: ["chdd","ssd"] 在售磁盘类型
+  // ===== 网络模式 + 库存 =====
+  netMode             String   @default("normal")                            // 网络模式：normal=独立IP（可购买独立IP）/ nat=NAT共享IP（不可购买独立IP）
+  availableStock      Int      @default(0)                                   // 可用库存：0=无限 / >0=剩余可开数量（雨云上游 available_stock）
+  // ===== 服务器代数 / 网络线路 / 计费类型（从上游 plan 同步） =====
+  machine             String?                                                // 服务器代数：G6v2 / EPYCv2 / EPYCv3 等（前端"代数 tab"用）
+  line                String?                                                // 网络线路：single / bgp / 3c / opt 等
+  chargeType          String?                                                // 计费类型：package=不限流量 / package_traffic=流量叠加型
+  // ===== 通用 =====
+  group           String?                                                    // 商品分组
+  tags            String?                                                    // JSON 数组
+  sortWeight      Int      @default(0)
+  isRecommended   Boolean  @default(false)
+  isOnSale        Boolean  @default(true)
+  perUserLimit    Int      @default(0)                                       // 0=不限
+  salesCount      Int      @default(0)
+  upstreamChanged Boolean  @default(false)                                   // 上游变更待复核
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  orders          Order[]
+  userProducts    UserProduct[]
+  
+  @@index([category, isOnSale])
+  @@index([zone])
+}
+
+// ============ 订单体系 ============
+
+model Order {
+  id              Int      @id @default(autoincrement())
+  orderNo         String   @unique
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id])
+  // type=RECHARGE 时 productId 可空（充值订单不关联商品）
+  type            String   @default("PRODUCT")                                // PRODUCT / RECHARGE
+  productId       Int?
+  product         Product? @relation(fields: [productId], references: [id])
+  productName     String                                                     // 商品名快照
+  duration        Int                                                        // 1/3/6/12 月
+  unitPrice       Decimal  @db.Decimal(10, 2)                                // 机器单价（月价，不含 IP）
+  quantity        Int      @default(1)
+  totalAmount     Decimal  @db.Decimal(10, 2)                                // 实付总额（机器+IP+磁盘）
+  upstreamCost    Decimal  @db.Decimal(10, 2)                                // 上游成本快照
+  // ===== IP 选项快照（下单时记录） =====
+  ipType          String?  @default("")                                      // 用户选择的 IP 类型 key（""=默认IPv4, "hk_ddosip" 等）
+  ipCount         Int      @default(1)                                       // IP 数量
+  ipUnitPrice     Decimal? @db.Decimal(10, 2)                                // IP 单价（月价，按优惠率算后）
+  machineUnitPrice Decimal? @db.Decimal(10, 2)                               // 机器单价快照（含优惠）
+  // ===== 磁盘选项快照 =====
+  diskType        String?                                                    // 磁盘类型（如 "chdd"）
+  diskSize        Int?                                                       // 磁盘总大小 GB
+  diskUnitPrice   Decimal? @db.Decimal(10, 2)                                // 磁盘月价快照
+  couponId        Int?
+  couponDiscount  Decimal  @default(0) @db.Decimal(10, 2)
+  payMethod       String?                                                    // EPAY/BALANCE
+  payTradeNo      String?                                                    // 易支付流水号
+  status          String   @default("PENDING")                               // PENDING/PAID/OPENING/OPENED/FAILED/REFUNDED/CLOSED
+  payTime         DateTime?
+  openTime        DateTime?
+  openResult      String?  @db.Text                                          // 开通结果/错误信息
+  userProductId   Int?                                                       // 开通成功后关联 user_products.id
+  
+  // 上游调用链路
+  upstreamRcsId   Int?                                                       // 雨云 RCS 实例 ID
+  upstreamTaskId  Int?                                                       // 创建任务 ID
+  
+  remark          String?
+  isRisky         Boolean  @default(false)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  balanceTxns     BalanceTransaction[]
+  userProduct     UserProduct? @relation("OrderUserProduct")
+  couponUse       UserCoupon?
+  
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@index([orderNo])
+}
+
+// ============ 用户产品 ============
+
+model UserProduct {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id])
+  productId       Int
+  product         Product  @relation(fields: [productId], references: [id])
+  orderId         Int?     @unique
+  order           Order?   @relation("OrderUserProduct", fields: [orderId], references: [id])
+
+  // 上游映射
+  upstreamRcsId   Int                                                        // 雨云 RCS 实例 ID
+  upstreamRcsName String?
+  panelUserName   String?                                                    // 所属 panel_user
+  
+  // 状态
+  state           String   @default("PENDING")                               // PENDING/RUNNING/STOPPED/EXPIRED/FAILED
+  stateSyncedAt   DateTime?
+  expireAt        DateTime
+  autoRenew       Boolean  @default(false)
+  
+  // 配置快照
+  zone            String?
+  zoneName        String?
+  osId            Int?
+  osName          String?
+  cpu             Int?
+  memory          Int?
+  disk            Int?
+  bandwidth       Int?
+  ipv4            String?
+  ipv6            String?
+  natIps          String?                                                    // JSON
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  tickets         Ticket[]
+  
+  @@index([userId, state])
+  @@index([expireAt])
+  @@index([upstreamRcsId])
+}
+
+// ============ 工单体系 ============
+
+model Ticket {
+  id                    Int      @id @default(autoincrement())
+  ticketNo              String   @unique
+  userId                Int
+  user                  User     @relation(fields: [userId], references: [id])
+  userProductId         Int?
+  userProduct           UserProduct? @relation(fields: [userProductId], references: [id])
+  
+  type                  String                                                     // tech/expense/sale/feedback/reward
+  title                 String
+  content               String   @db.Text                                          // 首条消息
+  priority              Int      @default(0)                                       // 0普通 1紧急
+  status                String   @default("OPEN")                                  // OPEN/REPLIED/RESOLVED/CLOSED
+  source                String   @default("local")                                 // local=本站工单 / official=官方工单（创建时直接调雨云 API）
+  assignedAdminId       Int?
+  assignedAdmin         Admin?   @relation("TicketAssignee", fields: [assignedAdminId], references: [id])
+
+  // 雨云同步
+  rainyunWorkorderId    Int?                                                       // 升级后才有
+  rainyunSyncedAt       DateTime?
+  rainyunIsAuthed       Boolean  @default(true)
+  
+  // 评分
+  rating                Int?                                                       // 1-5
+  ratingComment         String?
+  
+  // SLA
+  firstResponseAt       DateTime?
+  resolvedAt            DateTime?
+  
+  messages              TicketMessage[]
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@index([assignedAdminId])
+}
+
+model TicketMessage {
+  id           Int      @id @default(autoincrement())
+  ticketId     Int
+  ticket       Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  fromType     String                                                     // user/admin/rainyun_support/system
+  fromId       Int?
+  fromName     String?
+  content      String   @db.Text
+  rainyunMsgId Int?                                                       // 雨云 Discuss[].ID
+  createdAt    DateTime @default(now())
+  
+  @@unique([ticketId, rainyunMsgId])
+  @@index([ticketId, createdAt])
+}
+
+// ============ 财务体系 ============
+
+model BalanceTransaction {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id])
+  type         String                                                     // recharge/consume/refund/adjust/admin_adjust
+  amount       Decimal  @db.Decimal(10, 2)                                 // 正加负减
+  balanceAfter Decimal  @db.Decimal(10, 2)
+  orderId      Int?
+  order        Order?   @relation(fields: [orderId], references: [id])
+  ticketId     Int?
+  adminId      Int?
+  admin        Admin?   @relation("AdminAdjust", fields: [adminId], references: [id])
+  remark       String?
+  createdAt    DateTime @default(now())
+  
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+}
+
+// ============ 优惠券 ============
+
+model Coupon {
+  id              Int      @id @default(autoincrement())
+  code            String   @unique
+  name            String
+  type            String                                                     // discount(折扣) / fixed_amount(满减)
+  value           Decimal  @db.Decimal(10, 2)                                 // 折扣比例(0.9=9折) 或 满减金额
+  minAmount       Decimal  @default(0) @db.Decimal(10, 2)
+  applicableCategory String?                                                 // null=全场, RCS=仅RCS
+  validFrom       DateTime
+  validTo         DateTime?
+  totalQty        Int      @default(-1)                                      // -1=无限
+  issuedQty       Int      @default(0)
+  usedQty         Int      @default(0)
+  perUserLimit    Int      @default(1)
+  status          String   @default("ACTIVE")                                // ACTIVE/DISABLED
+  createdAt       DateTime @default(now())
+  
+  userCoupons     UserCoupon[]
+  
+  @@index([status, validFrom])
+}
+
+model UserCoupon {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  couponId    Int
+  coupon      Coupon   @relation(fields: [couponId], references: [id])
+  status      String   @default("UNUSED")                                    // UNUSED/USED/EXPIRED
+  orderId     Int?     @unique
+  order       Order?   @relation(fields: [orderId], references: [id])
+  obtainedAt  DateTime @default(now())
+  usedAt      DateTime?
+  
+  @@unique([userId, couponId])
+  @@index([userId, status])
+}
+
+// ============ 通知 ============
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  type      String                                                     // order/ticket/product/system
+  title     String
+  content   String   @db.Text
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  
+  @@index([userId, isRead, createdAt])
+}
+
+// ============ SMTP 邮件 ============
+
+model SmtpConfig {
+  id              Int      @id @default(1)
+  enabled         Boolean  @default(false)
+  host            String   @default("")
+  port            Int      @default(465)
+  encryption      String   @default("SSL")                                   // NONE/SSL/STARTTLS
+  username        String   @default("")
+  passwordEnc     String   @default("")                                      // AES 加密
+  fromAddress     String   @default("")
+  fromName        String   @default("")
+  replyTo         String?
+  connectTimeout  Int      @default(10)
+  sendTimeout     Int      @default(30)
+  retryCount      Int      @default(3)
+  dailyLimit      Int      @default(1000)
+  todaySent       Int      @default(0)
+  lastTestAt      DateTime?
+  lastTestResult  String?
+  updatedAt       DateTime @updatedAt
+  updatedBy       Int?
+  updatedByAdmin  Admin?   @relation(fields: [updatedBy], references: [id])
+}
+
+// ============ 雨云 API 配置 ============
+// 单例模式（id 固定为 1），AES 加密存储 API Key
+// 优先级：数据库 > 环境变量（启动时若数据库为空，回退到 RAINYUN_API_KEY 环境变量）
+model RainyunConfig {
+  id              Int      @id @default(1)
+  apiKeyEnc       String   @default("")                                       // AES 加密后的雨云 API Key
+  apiBase         String   @default("https://api.v2.rainyun.com")             // 雨云 API 基础地址
+  mockMode        Boolean  @default(false)                                    // 是否强制 MOCK 模式（调试用）
+  lastTestAt      DateTime?
+  lastTestResult  String?
+  updatedAt       DateTime @updatedAt
+  updatedBy       Int?
+  updatedByAdmin  Admin?   @relation(fields: [updatedBy], references: [id])
+}
+
+model EmailTemplate {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  subject     String
+  htmlContent String   @db.Text
+  textContent String   @db.Text
+  variables   String?                                                     // JSON
+  enabled     Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+  
+  @@index([enabled])
+}
+
+model EmailLog {
+  id           Int      @id @default(autoincrement())
+  toAddress    String
+  subject      String
+  templateCode String?
+  userId       Int?
+  status       String                                                     // queued/sent/failed/retrying
+  errorMessage String?
+  retryCount   Int      @default(0)
+  sentAt       DateTime?
+  durationMs   Int?
+  createdAt    DateTime @default(now())
+  
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}
+
+// ============ 短信服务（阿里云号码认证服务 - PNVS） ============
+
+// 短信认证配置（singleton，id 固定为 1）
+// 文档：https://help.aliyun.com/zh/pnvs/developer-reference/api-dypnsapi-2017-05-25-dir-sms-authentication-service
+model SmsConfig {
+  id                 Int      @id @default(1)
+  enabled            Boolean  @default(false)
+  accessKeyId        String   @default("")                                  // 阿里云 RAM AccessKey ID
+  accessKeySecretEnc String   @default("")                                  // AES 加密的 AccessKey Secret
+  signName           String   @default("")                                  // 签名名称（推荐系统赠送签名）
+  templateCode       String   @default("100001")                            // 模板 CODE（100001=登录/注册）
+  schemeName         String?                                                // 方案名称，不填为默认方案
+  codeLength         Int      @default(6)                                   // 验证码长度 4~8
+  codeType           Int      @default(1)                                   // 1纯数字 / 5数字+大写 / 7数字+大小写
+  validTime          Int      @default(300)                                 // 验证码有效期（秒），默认 300
+  interval           Int      @default(60)                                  // 发送间隔（秒），用于频控
+  duplicatePolicy    Int      @default(1)                                   // 1覆盖 / 2保留
+  dailyLimit         Int      @default(1000)                                // 每日发送上限
+  todaySent          Int      @default(0)
+  lastTestAt         DateTime?
+  lastTestResult     String?
+  updatedAt          DateTime @updatedAt
+  updatedBy          Int?
+  updatedByAdmin     Admin?   @relation(fields: [updatedBy], references: [id])
+}
+
+// 短信发送日志
+model SmsLog {
+  id           Int      @id @default(autoincrement())
+  phoneNumber  String
+  scene        String                                                     // register/reset_password/login/bind_phone/test
+  bizId        String?                                                    // 阿里云返回的 BizId
+  outId        String?                                                    // 外部流水号
+  verifyCode   String?                                                    // 调试用（仅在 ReturnVerifyCode=true 时返回）
+  status       String                                                     // sent/failed
+  errorCode    String?                                                    @db.VarChar(64)
+  errorMessage String?                                                    @db.Text
+  durationMs   Int?
+  userId       Int?
+  createdAt    DateTime @default(now())
+
+  @@index([phoneNumber, createdAt])
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}
+
+// ============ 审计 & 系统 ============
+
+model AdminAuditLog {
+  id          Int      @id @default(autoincrement())
+  adminId     Int
+  admin       Admin    @relation(fields: [adminId], references: [id])
+  module      String                                                     // user/order/product/ticket/finance/system
+  action      String                                                     // create/update/delete/refund/...
+  targetType  String?
+  targetId    Int?
+  oldValue    String?  @db.Text                                          // JSON
+  newValue    String?  @db.Text                                          // JSON
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  
+  @@index([adminId, createdAt])
+  @@index([module, action, createdAt])
+}
+
+model SystemConfig {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  value       String
+  type        String   @default("string")                                  // string/number/boolean/json
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+
+model Announcement {
+  id          Int      @id @default(autoincrement())
+  title       String
+  content     String   @db.Text
+  position    String   @default("portal")                                   // portal/dashboard/admin
+  pinned      Boolean  @default(false)
+  validFrom   DateTime @default(now())
+  validTo     DateTime?
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+  
+  @@index([position, status, validFrom])
+}
+
+// ============ 上游操作日志 ============
+
+model UpstreamApiLog {
+  id           Int      @id @default(autoincrement())
+  method       String                                                     // GET/POST/PATCH/PUT/DELETE
+  url          String
+  requestBody  String?  @db.Text
+  statusCode   Int?
+  responseBody String?  @db.Text
+  durationMs   Int?
+  errorCode    String?
+  errorMessage String?
+  triggeredBy  String?                                                     // user_id / admin_id / system
+  category     String                                                     // rcs/panel_user/workorder/...
+  createdAt    DateTime @default(now())
+  
+  @@index([category, createdAt])
+  @@index([statusCode, createdAt])
+}

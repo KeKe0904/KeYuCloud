@@ -1,0 +1,374 @@
+// ========================================
+// 云服分销平台 · 双主题（去 AI 味版）
+// 日间：白 + 玫瑰粉  /  夜间：黑 + 烟紫
+// 克制：少渐变、少染色、少动画、多灰度
+// ========================================
+
+// ============ 日间模式（白 + 玫瑰粉）============
+:root[data-theme='light'] {
+  // 背景（纯白，不用粉色背景，更干净）
+  --bg-base: #fafafa;
+  --bg-elevated: #ffffff;
+  --bg-subtle: #f5f5f5;
+  --bg-hover: #f0f0f0;
+  --bg-inverse: #1a1a1a;
+
+  // 粉色系（玫瑰粉，降低饱和度，加灰调）
+  // 兼容旧变量名 --gold-*
+  --gold-50: #faf5f6;
+  --gold-100: #f5ebef;
+  --gold-200: #ebd7df;
+  --gold-300: #d4b3c2;
+  --gold-400: #c48a9e;
+  --gold-500: #d4798e; // 主色：玫瑰粉
+  --gold-600: #b85f76;
+  --gold-700: #94485c;
+
+  // 樱花粉（辅助，更克制）
+  --sakura: #d4798e;
+  --sakura-soft: #f5ebef;
+  --sakura-bg: #faf5f6;
+
+  // 文字（中性深灰，不偏粉）
+  --text-primary: #1a1a1a;
+  --text-secondary: #525252;
+  --text-tertiary: #8c8c8c;
+  --text-inverse: #ffffff;
+  --text-gold: #b85f76;
+
+  // 边框（中性灰，不偏粉）
+  --border-base: #e8e8e8;
+  --border-light: #f0f0f0;
+  --border-gold: #c48a9e;
+  --border-strong: #1a1a1a;
+
+  // 状态色（标准，不染色）
+  --success: #16a34a;
+  --success-bg: #f0fdf4;
+  --warning: #d97706;
+  --warning-bg: #fffbeb;
+  --danger: #dc2626;
+  --danger-bg: #fef2f2;
+  --info: #2563eb;
+  --info-bg: #eff6ff;
+
+  // 阴影（中性灰，不带粉色染色）
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-gold: 0 0 0 3px rgba(212, 121, 142, 0.12);
+
+  // 渐变（改为纯色，去 AI 味的关键）
+  --gradient-gold: #d4798e;
+  --gradient-gold-hover: #b85f76;
+  --gradient-title: #b85f76;
+
+  // 焦点光晕（克制）
+  --focus-ring: 0 0 0 3px rgba(212, 121, 142, 0.15);
+  --focus-ring-sakura: 0 0 0 3px rgba(212, 121, 142, 0.18);
+
+  // 玻璃拟态变量（降低饱和度，更真实）
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.85);
+  --glass-bg-subtle: rgba(255, 255, 255, 0.5);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-border-inner: rgba(255, 255, 255, 0.6);
+  --glass-blur: 16px;
+  --glass-blur-strong: 24px;
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --glass-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --glass-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+
+  // 背景光晕（极淡，不梦幻）
+  --bg-glow-1: radial-gradient(ellipse at 15% 20%, rgba(212, 121, 142, 0.05) 0%, transparent 50%);
+  --bg-glow-2: radial-gradient(ellipse at 85% 80%, rgba(212, 121, 142, 0.04) 0%, transparent 50%);
+  --bg-glow-3: radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, 0.02) 0%, transparent 70%);
+}
+
+// ============ 夜间模式（黑 + 烟紫）============
+:root[data-theme='dark'] {
+  // 背景（纯深灰，不用紫色背景）
+  --bg-base: #0f0f10;
+  --bg-elevated: #18181a;
+  --bg-subtle: #1f1f22;
+  --bg-hover: #28282c;
+  --bg-inverse: #fafafa;
+
+  // 紫色系（烟紫，降低饱和度，加灰调）
+  --gold-50: #1a1a1f;
+  --gold-100: #1f1a24;
+  --gold-200: #2a2433;
+  --gold-300: #3d3548;
+  --gold-400: #5c4f6e;
+  --gold-500: #9d8ec7; // 主色：烟紫
+  --gold-600: #b3a5d8;
+  --gold-700: #c9bde4;
+
+  // 樱花粉（夜间保留少量）
+  --sakura: #c9a0b0;
+  --sakura-soft: #3a2830;
+  --sakura-bg: #1f181c;
+
+  // 文字（中性亮灰）
+  --text-primary: #ededed;
+  --text-secondary: #a8a8a8;
+  --text-tertiary: #6b6b6b;
+  --text-inverse: #0f0f10;
+  --text-gold: #b3a5d8;
+
+  // 边框
+  --border-base: #28282c;
+  --border-light: #1f1f22;
+  --border-gold: #5c4f6e;
+  --border-strong: #ededed;
+
+  // 状态色
+  --success: #4ade80;
+  --success-bg: #0a2818;
+  --warning: #facc15;
+  --warning-bg: #2a2008;
+  --danger: #f87171;
+  --danger-bg: #2a0a0a;
+  --info: #60a5fa;
+  --info-bg: #0a1a2a;
+
+  // 阴影（中性黑）
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-gold: 0 0 0 3px rgba(157, 142, 199, 0.2);
+
+  // 渐变（纯色）
+  --gradient-gold: #9d8ec7;
+  --gradient-gold-hover: #b3a5d8;
+  --gradient-title: #b3a5d8;
+
+  // 焦点光晕
+  --focus-ring: 0 0 0 3px rgba(157, 142, 199, 0.25);
+  --focus-ring-sakura: 0 0 0 3px rgba(201, 160, 176, 0.25);
+
+  // 玻璃拟态
+  --glass-bg: rgba(24, 24, 26, 0.72);
+  --glass-bg-strong: rgba(31, 31, 34, 0.85);
+  --glass-bg-subtle: rgba(24, 24, 26, 0.5);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-border-inner: rgba(255, 255, 255, 0.06);
+  --glass-blur: 16px;
+  --glass-blur-strong: 24px;
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --glass-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --glass-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  // 背景光晕（极淡紫）
+  --bg-glow-1: radial-gradient(ellipse at 15% 20%, rgba(157, 142, 199, 0.08) 0%, transparent 50%);
+  --bg-glow-2: radial-gradient(ellipse at 85% 80%, rgba(157, 142, 199, 0.06) 0%, transparent 50%);
+  --bg-glow-3: radial-gradient(ellipse at 50% 50%, rgba(255, 255, 255, 0.02) 0%, transparent 70%);
+}
+
+// ============ 全局基础 ============
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Manrope', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background-color: var(--bg-base);
+  background-image: var(--bg-glow-1), var(--bg-glow-2), var(--bg-glow-3);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  transition: background-color 0.3s var(--ease-out-expo), color 0.3s var(--ease-out-expo);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv11', 'ss01';
+  min-height: 100vh;
+}
+
+// 字体类
+.font-display {
+  font-family: 'Fraunces', 'Source Han Serif SC', 'Noto Serif SC', serif;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  font-feature-settings: 'zero', 'ss02';
+}
+
+// ============ 通用工具类 ============
+
+// 主色文字
+.text-gold {
+  color: var(--text-gold);
+}
+
+// 标题：纯色，不用渐变（去 AI 味）
+.title-gradient {
+  color: var(--text-gold);
+}
+
+// 小标题
+.eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 2px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+
+// ============ 通用组件 ============
+
+// 主按钮：纯色 + 中性阴影（去渐变去染色）
+.btn-gold {
+  background: var(--gold-500);
+  color: var(--text-inverse);
+  border: 1px solid transparent;
+  padding: 10px 22px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  transition: all 0.2s var(--ease-out-expo);
+  font-family: inherit;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+
+  &:hover {
+    background: var(--gold-600);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  }
+
+  &:focus {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+// 次按钮：简约描边（去玻璃，更克制）
+.btn-outline {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-base);
+  padding: 10px 22px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  transition: all 0.2s var(--ease-out-expo);
+  font-family: inherit;
+
+  &:hover {
+    border-color: var(--gold-400);
+    color: var(--text-gold);
+    background: var(--bg-hover);
+  }
+}
+
+// ============ 玻璃卡片（核心组件）============
+// 克制：saturate 120%、blur 16px、圆角 12px
+.card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+  transition: border-color 0.2s var(--ease-out-expo), box-shadow 0.2s var(--ease-out-expo);
+  position: relative;
+
+  // 伪元素：顶部高光（1px 渐变白线）
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 12px;
+    right: 12px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--glass-border-inner), transparent);
+    pointer-events: none;
+  }
+}
+
+// hover：只变边框色和阴影，不位移（去 AI 味的动来动去）
+.card-hover:hover {
+  border-color: var(--gold-300);
+  box-shadow: var(--glass-shadow-hover);
+}
+
+// 强玻璃卡片（更不透明，用于内容区）
+.card-solid {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+}
+
+// 分割线：纯色，淡化
+.divider-gold {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--border-base) 20%,
+    var(--border-base) 80%,
+    transparent
+  );
+}
+
+// 虚线分割
+.divider-dashed {
+  height: 1px;
+  background-image: linear-gradient(90deg, var(--border-base) 50%, transparent 50%);
+  background-size: 8px 1px;
+  background-repeat: repeat-x;
+}
+
+// ============ 玻璃面板工具类 ============
+
+// 玻璃顶栏/侧边栏
+.glass-panel {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(120%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+// 滚动条（简约）
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-base);
+  border-radius: 3px;
+
+  &:hover {
+    background: var(--text-tertiary);
+  }
+}
+
+// 选区
+::selection {
+  background: var(--sakura-soft);
+  color: var(--text-primary);
+}
+
+// ============ 缓动变量 ============
+:root {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
+}
