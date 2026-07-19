@@ -634,7 +634,15 @@
           <div id="db-result"></div>
         </div>
       `;
-      renderActions({ prev: true, next: true, nextText: '测试并继续', nextDisabled: true });
+      renderActions({ prev: true, next: true, nextText: '测试并继续', nextDisabled: false });
+      // 监听密码输入框：输入后启用按钮，清空时禁用
+      const pwdInput = $('#db-password');
+      if (pwdInput) {
+        pwdInput.addEventListener('input', () => {
+          const btnNext = $('#btn-next');
+          if (btnNext) btnNext.disabled = false;
+        });
+      }
     }
 
     async function testDb() {
@@ -650,7 +658,7 @@
       };
       if (!body.password) {
         $('#db-result').innerHTML = alertBox('error', '请输入数据库密码');
-        btnNext.disabled = true;
+        btnNext.disabled = false;
         btnNext.textContent = '测试并继续';
         return;
       }
