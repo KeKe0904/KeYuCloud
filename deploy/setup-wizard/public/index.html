@@ -421,6 +421,7 @@
       meta: null,
       envCheck: null,
       dbTested: false,
+      domainSaved: false,
       adminSetup: false,
       servicesStarted: false,
       siteUrl: '',
@@ -746,6 +747,7 @@
       if (r.ok && r.data.success) {
         const d = r.data.data;
         state.siteUrl = d.siteUrl;
+        state.domainSaved = true;
         state.meta = { ...state.meta, domain: d.domain, sslMode: d.sslMode, siteUrl: d.siteUrl };
         $('#domain-result').innerHTML = alertBox('success',
           `✓ 域名配置已保存，站点 URL：<code>${d.siteUrl}</code>${d.nginxUpdated ? '<br>Nginx 配置已更新' : ''}`);
@@ -917,7 +919,11 @@
         return;
       }
       if (state.currentStep === 3) {
-        await saveDomain();
+        if (!state.domainSaved) {
+          await saveDomain();
+          return;
+        }
+        setStep(4);
         return;
       }
       if (state.currentStep === 4) {
