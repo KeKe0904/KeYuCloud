@@ -1879,6 +1879,499 @@ export class AdminService {
     return { list, total, page, pageSize };
   }
 
+  // ============ 系统管理（v1.1.0 新增） ============
+
+  /**
+   * 收集环境信息：Node/npm/PM2/MySQL/Redis/Nginx/Git 版本 + PM2 进程列表 + 磁盘/内存/CPU + 依赖列表
+   * 用于管理员后台「系统环境」页面展示，便于排查问题
+   */
+  async getEnvInfo() {
+    const { exec } = require('child_process');
+    const os = require('os');
+    const fs = require('fs');
+    const path = require('path');
+
+    const execCmd = (cmd: string): Promise<{ ok: boolean; stdout: string; stderr: string }> =>
+      new Promise((resolve) => {
+        exec(cmd, { timeout: 5000 }, (err, stdout, stderr) => {
+          resolve({
+            ok: !err,
+            stdout: (stdout || '').toString().trim(),
+            stderr: (stderr || '').toString().trim(),
+          });
+        });
+      });
+
+    // 并发收集版本信息
+    const [nodeV, npmV, pm2V, mysqlV, redisV, nginxV, gitV] = await Promise.all([
+      execCmd('node -v'),
+      execCmd('npm -v'),
+      execCmd('pm2 -v 2>/dev/null || echo NOT_FOUND'),
+      execCmd('mysql --version 2>/dev/null || echo NOT_FOUND'),
+      execCmd('redis-cli --version 2>/dev/null || echo NOT_FOUND'),
+      execCmd('nginx -v 2>&1 | head -1 || echo NOT_FOUND'),
+      execCmd('git --version'),
+    ]);
+
+    // PM2 进程列表
+    let pm2Processes: any[] = [];
+    try {
+      const pm2List = await execCmd('pm2 jlist 2>/dev/null');
+      if (pm2List.ok && pm2List.stdout) {
+        pm2Processes = JSON.parse(pm2List.stdout).map((p: any) => ({
+          name: p.name,
+          pid: p.pid,
+          status: p.pm2_env?.status,
+          uptime: p.pm2_env?.pm_uptime,
+          restarts: p.pm2_env?.restart_time,
+          memory: p.monit?.memory,
+          cpu: p.monit?.cpu,
+          version: p.pm2_env?.version,
+        }));
+      }
+    } catch (e: any) {
+      this.logger.warn(`获取 PM2 进程列表失败: ${e.message}`);
+    }
+
+    // 磁盘使用率
+    let diskUsage: any = null;
+    try {
+      const dfRes = await execCmd("df -h / | tail -1 | awk '{print $2\",\"$3\",\"$4\",\"$5}'");
+      if (dfRes.ok && dfRes.stdout) {
+        const [size, used, avail, usePercent] = dfRes.stdout.split(',');
+        diskUsage = { size, used, avail, usePercent };
+      }
+    } catch (_) {}
+
+    // 内存
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+    const memory = {
+      total: Math.round(totalMem / 1024 / 1024) + ' MB',
+      used: Math.round(usedMem / 1024 / 1024) + ' MB',
+      free: Math.round(freeMem / 1024 / 1024) + ' MB',
+      usePercent: ((usedMem / totalMem) * 100).toFixed(1) + '%',
+    };
+
+    // CPU
+    const cpus = os.cpus();
+    const cpu = {
+      cores: cpus.length,
+      model: cpus[0]?.model || 'unknown',
+      speed: cpus[0]?.speed ? `${cpus[0].speed} MHz` : 'unknown',
+      loadavg: os.loadavg().map((n) => n.toFixed(2)),
+    };
+
+    // 应用目录与 git 信息
+    const appDir = process.cwd().replace('/server', '');
+    let gitInfo: any = null;
+    try {
+      const [branch, commit, status] = await Promise.all([
+        execCmd(`git -C "${appDir}" rev-parse --abbrev-ref HEAD 2>/dev/null`),
+        execCmd(`git -C "${appDir}" rev-parse --short HEAD 2>/dev/null`),
+        execCmd(`git -C "${appDir}" status --porcelain 2>/dev/null | wc -l`),
+      ]);
+      gitInfo = {
+        branch: branch.stdout || 'unknown',
+        commit: commit.stdout || 'unknown',
+        dirtyFiles: parseInt(status.stdout || '0', 10),
+      };
+    } catch (_) {}
+
+    // 后端依赖列表
+    let dependencies: Record<string, string> = {};
+    try {
+      const pkgPath = path.join(__dirname, '..', '..', '..', 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        dependencies = pkg.dependencies || {};
+      }
+    } catch (_) {}
+
+    // Node.js 启动时间（uptime）
+    const uptime = process.uptime();
+
+    return {
+      versions: {
+        node: nodeV.stdout.replace(/^v/, ''),
+        npm: npmV.stdout,
+        pm2: pm2V.stdout.includes('NOT_FOUND') ? null : pm2V.stdout,
+        mysql: mysqlV.stdout.includes('NOT_FOUND') ? null : mysqlV.stdout,
+        redis: redisV.stdout.includes('NOT_FOUND') ? null : redisV.stdout,
+        nginx: nginxV.stdout.includes('NOT_FOUND') ? null : nginxV.stdout,
+        git: gitV.stdout,
+      },
+      pm2Processes,
+      diskUsage,
+      memory,
+      cpu,
+      gitInfo,
+      dependencies: Object.keys(dependencies).length + ' packages',
+      app: {
+        version: '1.1.0',
+        uptime: `${Math.floor(uptime / 60)}m ${Math.floor(uptime % 60)}s`,
+        pid: process.pid,
+        nodeEnv: process.env.NODE_ENV || 'development',
+      },
+      collectedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 检查项目版本：对比当前版本与 GitHub Release 最新版本
+   * 修复：处理 GitHub Release 404 情况（仓库未发布 Release 时给出友好提示）
+   */
+  async checkProjectVersion() {
+    const https = require('https');
+    const appDir = process.cwd().replace('/server', '');
+    const fs = require('fs');
+    const path = require('path');
+
+    // 当前版本（从 package.json 读取，避免硬编码）
+    let currentVersion = '1.1.0';
+    try {
+      const pkgPath = path.join(appDir, 'server', 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        if (pkg.version) currentVersion = pkg.version;
+      }
+    } catch (_) {}
+
+    // 从 .env 读取仓库地址
+    let repo = process.env.UPDATE_REPO || '';
+    if (!repo) {
+      try {
+        const envPath = path.join(appDir, 'server', '.env');
+        if (fs.existsSync(envPath)) {
+          const envText = fs.readFileSync(envPath, 'utf8');
+          const m = envText.match(/^UPDATE_REPO=(.+)$/m);
+          if (m) repo = m[1].trim().replace(/^["']|["']$/g, '');
+        }
+      } catch (_) {}
+    }
+
+    // 如果没有配置 UPDATE_REPO，尝试从 git remote 读取
+    if (!repo) {
+      try {
+        const { exec } = require('child_process');
+        const remoteUrl = await new Promise<string>((resolve) => {
+          exec(
+            `git -C "${appDir}" remote get-url origin 2>/dev/null`,
+            { timeout: 3000 },
+            (err, stdout) => resolve(err ? '' : stdout.toString().trim()),
+          );
+        });
+        // 解析 git@github.com:owner/repo.git 或 https://github.com/owner/repo.git
+        const m = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/.\s]+)/);
+        if (m) repo = `${m[1]}/${m[2]}`;
+      } catch (_) {}
+    }
+
+    if (!repo) {
+      return {
+        currentVersion,
+        latestVersion: null,
+        needUpdate: false,
+        repo: null,
+        checkedAt: new Date().toISOString(),
+        message: '未配置 UPDATE_REPO 环境变量，且无法从 git remote 推断仓库地址',
+      };
+    }
+
+    // 调用 GitHub Release API
+    const apiUrl = `https://api.github.com/repos/${repo}/releases/latest`;
+    let latestVersion: string | null = null;
+    let releaseUrl: string | null = null;
+    let releaseNotes: string | null = null;
+    let publishedAt: string | null = null;
+    let errorMessage: string | null = null;
+
+    try {
+      const data: any = await new Promise((resolve, reject) => {
+        const req = https.get(
+          apiUrl,
+          {
+            headers: {
+              'User-Agent': 'RainyunReseller/1.1.0',
+              Accept: 'application/vnd.github+json',
+            },
+            timeout: 10000,
+          },
+          (res: any) => {
+            let body = '';
+            res.on('data', (chunk: any) => (body += chunk));
+            res.on('end', () => {
+              resolve({ statusCode: res.statusCode, body });
+            });
+          },
+        );
+        req.on('error', reject);
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new Error('GitHub API 请求超时'));
+        });
+      });
+
+      if (data.statusCode === 200) {
+        const release = JSON.parse(data.body);
+        latestVersion = release.tag_name?.replace(/^v/, '') || null;
+        releaseUrl = release.html_url || null;
+        releaseNotes = release.body || null;
+        publishedAt = release.published_at || null;
+      } else if (data.statusCode === 404) {
+        // 仓库未发布任何 Release
+        errorMessage = `仓库 ${repo} 未发布 GitHub Release（404），无法获取最新版本`;
+      } else if (data.statusCode === 403) {
+        // GitHub API 限流
+        errorMessage = `GitHub API 限流（403），请稍后重试`;
+      } else {
+        errorMessage = `GitHub API 返回 ${data.statusCode}`;
+      }
+    } catch (e: any) {
+      errorMessage = `GitHub API 请求失败: ${e.message}`;
+    }
+
+    // 版本对比
+    let needUpdate = false;
+    if (latestVersion) {
+      needUpdate = this.compareVersions(latestVersion, currentVersion) > 0;
+    }
+
+    return {
+      currentVersion,
+      latestVersion,
+      needUpdate,
+      repo,
+      releaseUrl,
+      releaseNotes: releaseNotes?.slice(0, 500) || null,
+      publishedAt,
+      checkedAt: new Date().toISOString(),
+      error: errorMessage,
+    };
+  }
+
+  /** 版本号比较：a > b 返回 1，a < b 返回 -1，相等返回 0 */
+  private compareVersions(a: string, b: string): number {
+    const va = a.replace(/^v/, '').split(/[.\-]/).map((x) => parseInt(x, 10) || 0);
+    const vb = b.replace(/^v/, '').split(/[.\-]/).map((x) => parseInt(x, 10) || 0);
+    const len = Math.max(va.length, vb.length);
+    for (let i = 0; i < len; i++) {
+      const x = va[i] || 0;
+      const y = vb[i] || 0;
+      if (x !== y) return x - y;
+    }
+    return 0;
+  }
+
+  /**
+   * 触发强制更新（异步执行，立即返回 taskId）
+   * 修复：原同步等待 update.sh 完成会导致 PM2 reload 时杀死当前 HTTP 连接，API 超时
+   *      新设计：立即返回 taskId，update.sh 在后台执行，前端通过 GET update-status 轮询状态
+   */
+  async forceUpdate(adminId: number, ctx: AuditContext = {}) {
+    const { spawn } = require('child_process');
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+
+    const appDir = process.cwd().replace('/server', '');
+    const updateScript = path.join(appDir, 'deploy', 'update.sh');
+    const stateFile = path.join(appDir, 'deploy', '.update-state');
+    const lockFile = path.join(appDir, 'deploy', '.update-lock');
+
+    // 检查 update.sh 是否存在
+    if (!fs.existsSync(updateScript)) {
+      throw new NotFoundException('更新脚本 deploy/update.sh 不存在');
+    }
+
+    // 检查是否有正在进行的更新
+    if (fs.existsSync(lockFile)) {
+      const lockContent = fs.readFileSync(lockFile, 'utf8');
+      const pidMatch = lockContent.match(/pid:(\d+)/);
+      if (pidMatch) {
+        const pid = parseInt(pidMatch[1], 10);
+        try {
+          process.kill(pid, 0); // 检查进程是否存活
+          throw new BadRequestException(
+            `已有更新进程 (PID ${pid}) 正在运行，请等待其完成或删除 ${lockFile}`,
+          );
+        } catch (e: any) {
+          if (e.code !== 'ESRCH' && !(e instanceof BadRequestException)) {
+            // 进程存在
+            throw new BadRequestException(`已有更新进程 (PID ${pid}) 正在运行`);
+          }
+          if (e instanceof BadRequestException) throw e;
+          // ESRCH: 进程不存在，继续执行
+        }
+      }
+    }
+
+    // 生成 taskId
+    const taskId = `update-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // 审计日志
+    await this.writeAuditLog(adminId, 'system', 'force_update', {
+      targetType: 'system',
+      targetId: null,
+      newValue: { taskId, script: updateScript, at: new Date().toISOString() },
+      ctx,
+    });
+
+    // 异步启动 update.sh（detached，父进程退出后子进程继续运行）
+    // 关键：使用 setsid + nohup 双重保障，让子进程完全脱离当前 Node.js 进程
+    //  - setsid: 创建新会话，脱离父进程的进程组/会话
+    //  - nohup: 忽略 SIGHUP（PM2 reload 时可能向整个进程组发 SIGHUP）
+    //  - stdio: 'ignore' + 重定向到日志：避免 stdio 管道在父进程死亡时断裂
+    // 这样即使 PM2 reload 杀死当前 NestJS 进程，update.sh 仍能继续执行
+    const env = {
+      ...process.env,
+      APP_DIR: appDir,
+      DEPLOY_NONINTERACTIVE: '1', // 强制非交互模式
+      FORCE_UPDATE_TASK_ID: taskId,
+    };
+
+    // 使用 setsid 创建新会话，nohup 忽略 SIGHUP
+    // 日志输出到 update.sh 自己的日志文件（由脚本内部管理）
+    const child = spawn('setsid', ['bash', updateScript], {
+      cwd: appDir,
+      stdio: 'ignore',
+      env,
+    });
+
+    child.unref(); // 关键：让父进程可以独立退出
+
+    this.logger.log(
+      `force-update 已触发: taskId=${taskId}, pid=${child.pid}, script=${updateScript}`,
+    );
+
+    // 立即返回，不等 update.sh 完成
+    return {
+      taskId,
+      status: 'STARTED',
+      message: '更新已开始，请通过 GET /api/admin/system/update-status 查询进度',
+      pid: child.pid,
+      startedAt: new Date().toISOString(),
+      // 提示前端：update.sh 执行 pm2 reload 时会断开当前 HTTP 连接
+      // 前端应轮询 GET /api/admin/system/update-status，而不是依赖长连接
+      hint: '更新过程中后端服务会重启，请等待 10-30 秒后查询状态',
+    };
+  }
+
+  /**
+   * 查询更新状态：读取 deploy/.update-state 文件
+   * 用于 force-update 触发后前端轮询
+   */
+  async getUpdateStatus() {
+    const fs = require('fs');
+    const path = require('path');
+    const appDir = process.cwd().replace('/server', '');
+
+    const stateFile = path.join(appDir, 'deploy', '.update-state');
+    const lockFile = path.join(appDir, 'deploy', '.update-lock');
+    const logDir = path.join(appDir, 'deploy', '.update-logs');
+
+    // 读取状态文件
+    let state: any = null;
+    try {
+      if (fs.existsSync(stateFile)) {
+        state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+      }
+    } catch (e: any) {
+      this.logger.warn(`读取更新状态文件失败: ${e.message}`);
+    }
+
+    // 检查锁文件是否存在（判断是否正在运行）
+    let isRunning = false;
+    let lockPid: number | null = null;
+    let lockAge: number | null = null;
+    if (fs.existsSync(lockFile)) {
+      try {
+        const lockContent = fs.readFileSync(lockFile, 'utf8');
+        const pidMatch = lockContent.match(/pid:(\d+)/);
+        if (pidMatch) {
+          lockPid = parseInt(pidMatch[1], 10);
+          try {
+            process.kill(lockPid, 0);
+            isRunning = true;
+          } catch (_) {
+            // 进程不存在
+            isRunning = false;
+          }
+        }
+        const startedMatch = lockContent.match(/started:(.+)/);
+        if (startedMatch) {
+          const startedAt = new Date(startedMatch[1].trim()).getTime();
+          lockAge = Math.floor((Date.now() - startedAt) / 1000);
+        }
+      } catch (_) {}
+    }
+
+    // 获取最新日志文件路径
+    let latestLog: string | null = null;
+    let logContent: string | null = null;
+    try {
+      if (fs.existsSync(logDir)) {
+        const logs = fs.readdirSync(logDir)
+          .filter((f: string) => f.startsWith('update-') && f.endsWith('.log'))
+          .sort()
+          .reverse();
+        if (logs.length > 0) {
+          latestLog = logs[0];
+          const logPath = path.join(logDir, latestLog);
+          // 只返回最后 50 行
+          const fullLog = fs.readFileSync(logPath, 'utf8');
+          const lines = fullLog.split('\n');
+          logContent = lines.slice(-50).join('\n');
+        }
+      }
+    } catch (_) {}
+
+    // 如果状态文件不存在但锁存在，说明 update.sh 刚启动还未写状态
+    if (!state && isRunning) {
+      state = {
+        status: 'RUNNING',
+        message: '更新已启动，正在执行中',
+        progress: 0,
+        step: '0',
+      };
+    }
+
+    // 如果状态文件不存在且锁不存在，说明从未执行过更新
+    if (!state) {
+      return {
+        status: 'NEVER',
+        message: '从未执行过更新',
+        isRunning: false,
+        checkedAt: new Date().toISOString(),
+      };
+    }
+
+    // 检测僵尸状态：状态文件说 RUNNING 但实际进程已不在（崩溃/被杀）
+    // 这种情况下更新已中断，需提示用户
+    if (state.status === 'RUNNING' && !isRunning && lockPid !== null) {
+      state = {
+        ...state,
+        status: 'STALE',
+        message: `更新进程 (PID ${lockPid}) 已异常退出，状态停留在步骤 ${state.step || '?'}。请查看日志排查原因，或重新触发更新。`,
+        originalStatus: 'RUNNING',
+      };
+    } else if (state.status === 'RUNNING' && !isRunning && lockPid === null) {
+      // 没有 lock 文件但状态仍是 RUNNING — 通常是 update.sh 已完成但最终状态未更新
+      // 不修改状态，仅通过 isRunning=false 提示
+    }
+
+    return {
+      ...state,
+      isRunning,
+      lockPid,
+      lockAgeSeconds: lockAge,
+      latestLog,
+      logTail: logContent,
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
   // ============ 工具方法 ============
 
   /** 写审计日志（fail-safe，不影响主流程） */

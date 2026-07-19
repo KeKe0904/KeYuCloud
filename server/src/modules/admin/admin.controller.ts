@@ -953,4 +953,50 @@ export class AdminController {
     const result = await this.admin.listAuditLogs(query);
     return ApiResponse.paged(result.list, result.total, result.page, result.pageSize);
   }
+
+  // ============ 16. 系统管理（v1.1.0 新增） ============
+  //  - GET  /api/admin/system/env-info        收集环境信息（Node/npm/PM2/MySQL/Redis/Nginx/Git 等）
+  //  - GET  /api/admin/system/version-check   对比当前版本与 GitHub Release 最新版本
+  //  - POST /api/admin/system/force-update    异步触发强制更新（立即返回 taskId，不等待完成）
+  //  - GET  /api/admin/system/update-status   查询更新状态（供前端轮询）
+
+  @Get('system/env-info')
+  async envInfo(@CurrentAdmin('role') role: string) {
+    this.ensureSuperAdmin(role);
+    const data = await this.admin.getEnvInfo();
+    return ApiResponse.success(data);
+  }
+
+  @Get('system/version-check')
+  async versionCheck(@CurrentAdmin('role') role: string) {
+    this.ensureSuperAdmin(role);
+    const data = await this.admin.checkProjectVersion();
+    return ApiResponse.success(data);
+  }
+
+  /**
+   * 触发强制更新（异步设计）
+   * 立即返回 taskId，update.sh 在 detached 子进程中执行
+   * 前端通过 GET /api/admin/system/update-status 轮询状态
+   *
+   * 关键修复：原同步设计在 update.sh 执行 pm2 reload 时会断开当前 HTTP 连接，导致 40 秒超时
+   *          新设计使用 detached spawn + unref，立即返回，前端轮询状态
+   */
+  @Post('system/force-update')
+  async forceUpdate(
+    @CurrentAdmin('sub') adminId: number,
+    @CurrentAdmin('role') role: string,
+    @Req() req: Request,
+  ) {
+    this.ensureSuperAdmin(role);
+    const data = await this.admin.forceUpdate(adminId, this.ctx(req));
+    return ApiResponse.success(data, '更新已开始');
+  }
+
+  @Get('system/update-status')
+  async updateStatus(@CurrentAdmin('role') role: string) {
+    this.ensureSuperAdmin(role);
+    const data = await this.admin.getUpdateStatus();
+    return ApiResponse.success(data);
+  }
 }

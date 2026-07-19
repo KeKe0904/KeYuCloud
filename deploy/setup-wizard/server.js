@@ -1,22 +1,25 @@
 /**
- * 雨云服务器分销平台 - 网页外部部署向导 (v1.0.0)
+ * 雨云服务器分销平台 - 网页外部部署向导 (v1.1.0)
  * ----------------------------------------------------------------------------
- * 5 步向导：
- *   1. 环境检测     POST /api/wizard/check-env
- *   2. 连接数据库   POST /api/wizard/test-db
- *   3. 域名配置     POST /api/wizard/configure-domain
- *   4. 配置管理员   POST /api/wizard/setup-admin
- *   5. 启动服务     POST /api/wizard/start-services
+ * 6 步向导：
+ *   1. 环境检测      POST /api/wizard/check-env
+ *   2. 雨云 API Key   POST /api/wizard/configure-api-key  (可跳过)
+ *   3. 连接数据库    POST /api/wizard/test-db
+ *   4. 数据库迁移    POST /api/wizard/migrate-db
+ *   5. 域名配置      POST /api/wizard/configure-domain
+ *   6. 配置管理员    POST /api/wizard/setup-admin
+ *   7. 启动服务      POST /api/wizard/start-services
  *
  * 辅助：
- *   GET  /api/wizard/status        读取 .deploy-meta.json 部署元信息
- *   GET  /api/wizard/services      查询前后端运行状态
- *   POST /api/wizard/migrate-db    执行 prisma migrate + seed
+ *   POST /api/wizard/verify-token       验证向导令牌
+ *   GET  /api/wizard/status             读取 .deploy-meta.json 部署元信息
+ *   GET  /api/wizard/services           查询前后端运行状态
  *
  * 安全：
  *   - 仅监听 127.0.0.1 + 部署元信息中的 host（默认 0.0.0.0）
  *   - 仅在部署后短期内可用，完成向导后自动停止
  *   - 不暴露任何敏感字段（数据库密码、JWT 密钥等只写不读）
+ *   - 所有 POST /api/wizard/* 接口需携带 x-wizard-token 头部
  */
 'use strict';
 
@@ -261,7 +264,7 @@ app.get('/api/wizard/status', (req, res) => {
       deployedAt: meta.deployedAt || '',
     },
     done,
-    wizardVersion: '1.0.0',
+    wizardVersion: '1.1.0',
   });
 });
 
@@ -412,6 +415,69 @@ app.post('/api/wizard/test-db', async (req, res) => {
       try { await conn.end(); } catch (_) {}
     }
   }
+});
+
+// ============ 路由：配置雨云 API Key（可跳过） ============
+// 用户可在此步骤配置雨云上游 API Key，也可选择跳过（默认 MOCK 模式）
+// 配置后写入 .env，重启后端服务后生效
+app.post('/api/wizard/configure-api-key', async (req, res) => {
+  const meta = readMeta();
+  const appDir = meta.appDir || DEFAULT_APP_DIR;
+  const serverDir = path.join(appDir, 'server');
+
+  if (!fs.existsSync(serverDir)) {
+    return fail(res, `服务器目录不存在: ${serverDir}`, 400);
+  }
+
+  const envPath = path.join(serverDir, '.env');
+  if (!fs.existsSync(envPath)) {
+    return fail(res, '.env 文件不存在，请先完成数据库配置', 400);
+  }
+
+  const apiKey = (req.body.apiKey || '').trim();
+  const apiBase = (req.body.apiBase || 'https://api.v2.rainyun.com').trim();
+  const skip = !!req.body.skip;
+
+  if (skip) {
+    // 用户选择跳过，保持 MOCK 模式
+    try {
+      writeEnvFile(appDir, {
+        RAINYUN_API_KEY: '',
+        RAINYUN_API_BASE: apiBase,
+        RAINYUN_MOCK: 'true',
+      });
+    } catch (e) {
+      return fail(res, `写入 .env 失败: ${e.message}`, 500);
+    }
+    return ok(res, { skipped: true, mode: 'MOCK' }, '已跳过 API Key 配置，使用 MOCK 模式（稍后可在管理后台配置）');
+  }
+
+  if (!apiKey) {
+    return fail(res, '请输入 API Key 或选择跳过', 400);
+  }
+  if (apiKey.length < 16 || apiKey.length > 256) {
+    return fail(res, 'API Key 长度异常（应为 16-256 个字符）', 400);
+  }
+
+  try {
+    writeEnvFile(appDir, {
+      RAINYUN_API_KEY: apiKey,
+      RAINYUN_API_BASE: apiBase,
+      RAINYUN_MOCK: 'false',
+    });
+  } catch (e) {
+    return fail(res, `写入 .env 失败: ${e.message}`, 500);
+  }
+
+  // 写入部署元信息
+  writeMeta({ rainyunApiKeyConfigured: true, rainyunApiBase: apiBase });
+
+  ok(res, {
+    configured: true,
+    mode: 'LIVE',
+    apiBase,
+    apiKeyMasked: apiKey.slice(0, 8) + '****' + apiKey.slice(-4),
+  }, '雨云 API Key 已配置，将在服务启动后生效');
 });
 
 // ============ 路由：执行数据库迁移 + Seed ============

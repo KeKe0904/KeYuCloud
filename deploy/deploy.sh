@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# 雨云服务器分销平台 - 一键部署脚本 (v1.0.0)
+# 雨云服务器分销平台 - 一键部署脚本 (v1.1.0)
 # ----------------------------------------------------------------------------
 # 功能：
 #   1. 检测/安装/升级环境依赖（Node.js LTS / MySQL / Redis / Nginx / PM2 / Git）
@@ -11,12 +11,31 @@
 #   6. 构建 + 启动网页外部向导（向导完成管理员账号配置与前后端启动）
 #
 # 用法：
-#   chmod +x deploy.sh && ./deploy.sh
+#   chmod +x deploy.sh && ./deploy.sh                              # 交互式
+#   DEPLOY_NONINTERACTIVE=1 DB_USER=... DB_PASS=... ./deploy.sh    # 非交互式（CI）
+#
+# 非交互式环境变量（DEPLOY_NONINTERACTIVE=1 时生效）：
+#   DB_NAME          数据库名（默认 rainyun_reseller）
+#   DB_USER          数据库用户（默认 rainyun）
+#   DB_PASS          数据库密码（必填）
+#   DB_HOST          数据库主机（默认 127.0.0.1）
+#   DB_PORT          数据库端口（默认 2009）
+#   DOMAIN           站点域名（可留空）
+#   SSL_MODE         SSL 模式（none/custom/letsencrypt，默认 none）
+#   SITE_URL         站点完整 URL（覆盖 DOMAIN+SSL_MODE 计算）
+#   REPO_URL         Git 仓库 URL
+#   REPO_BRANCH      Git 分支（默认 main）
+#   APP_DIR          应用目录（默认 /opt/rainyun-reseller）
+#   WIZARD_PORT      向导端口（默认 7432）
+#   RAINYUN_API_KEY  雨云 API Key（可留空，使用 MOCK）
 #
 # 支持系统：Ubuntu 20.04+ / Debian 11+ / CentOS 8+ / RHEL 9+
 # ============================================================================
 
 set -euo pipefail
+
+# 非交互模式标志
+DEPLOY_NONINTERACTIVE="${DEPLOY_NONINTERACTIVE:-0}"
 
 # ---------- 全局变量 ----------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,9 +46,13 @@ WIZARD_PORT="${WIZARD_PORT:-7432}"
 LOG_FILE="/var/log/rainyun-deploy.log"
 STEP_FILE="/tmp/rainyun-deploy-step"
 
-# 颜色
-C_RED='\033[0;31m'; C_GREEN='\033[0;32m'; C_YELLOW='\033[0;33m'
-C_BLUE='\033[0;34m'; C_CYAN='\033[0;36m'; C_BOLD='\033[1m'; C_RESET='\033[0m'
+# 颜色（仅在交互式时启用）
+if [[ -t 1 && "$DEPLOY_NONINTERACTIVE" != "1" ]]; then
+  C_RED='\033[0;31m'; C_GREEN='\033[0;32m'; C_YELLOW='\033[0;33m'
+  C_BLUE='\033[0;34m'; C_CYAN='\033[0;36m'; C_BOLD='\033[1m'; C_RESET='\033[0m'
+else
+  C_RED=''; C_GREEN=''; C_YELLOW=''; C_BLUE=''; C_CYAN=''; C_BOLD=''; C_RESET=''
+fi
 
 # ---------- 工具函数 ----------
 log()   { echo -e "${C_GREEN}[$(date +%H:%M:%S)]${C_RESET} $*" | tee -a "$LOG_FILE"; }
@@ -85,8 +108,15 @@ pkg_update() {
 }
 
 # 提示输入（带默认值）
+# 非交互模式下从同名环境变量读取，若未设置则使用默认值
 prompt() {
-  local msg="$1" default="${2:-}" var
+  local msg="$1" default="${2:-}" var env_name
+  # 从 msg 推断环境变量名（简化处理：通过 caller 上下文由调用方提供）
+  if [[ "$DEPLOY_NONINTERACTIVE" == "1" ]]; then
+    # 非交互模式：调用方应直接传值，这里返回默认值
+    echo "$default"
+    return
+  fi
   if [[ -n "$default" ]]; then
     read -rp "$(echo -e "${C_CYAN}${msg}${C_RESET} [${default}]: ")" var
     echo "${var:-$default}"
@@ -96,9 +126,30 @@ prompt() {
   fi
 }
 
+# 非交互模式下从环境变量读取值（带默认值）
+# 用法：env_or_prompt "DB_NAME" "数据库名" "rainyun_reseller"
+env_or_prompt() {
+  local env_name="$1" msg="$2" default="${3:-}"
+  if [[ "$DEPLOY_NONINTERACTIVE" == "1" ]]; then
+    local val="${!env_name:-$default}"
+    echo "$val"
+  else
+    prompt "$msg" "$default"
+  fi
+}
+
 # 提示密码（不回显）
 prompt_password() {
-  local msg="$1" var
+  local msg="$1" var env_name="${2:-}"
+  if [[ "$DEPLOY_NONINTERACTIVE" == "1" && -n "$env_name" ]]; then
+    local val="${!env_name:-}"
+    if [[ -z "$val" ]]; then
+      err "非交互模式下 $env_name 环境变量必填"
+      exit 1
+    fi
+    echo "$val"
+    return
+  fi
   while true; do
     read -rsp "$(echo -e "${C_CYAN}${msg}${C_RESET}: ")" var
     echo
@@ -111,6 +162,11 @@ prompt_password() {
 # 确认
 confirm() {
   local msg="$1" default="${2:-y}"
+  if [[ "$DEPLOY_NONINTERACTIVE" == "1" ]]; then
+    # 非交互模式总是返回默认值
+    [[ "$default" =~ ^[Yy]$ ]]
+    return
+  fi
   read -rp "$(echo -e "${C_CYAN}${msg}${C_RESET} [${default}/n]: ")" ans
   [[ "${ans:-$default}" =~ ^[Yy]$ ]]
 }
@@ -334,10 +390,10 @@ pull_repo() {
     cd "$APP_DIR"
   fi
 
-  # 安装依赖
+  # 安装依赖（含 devDependencies，构建需要 @nestjs/cli/prisma/typescript）
   if [[ -f "$APP_DIR/server/package.json" ]]; then
-    info "安装后端依赖..."
-    (cd "$APP_DIR/server" && npm ci --omit=dev 2>/dev/null || npm install --omit=dev 2>/dev/null || npm install)
+    info "安装后端依赖（含 devDependencies）..."
+    (cd "$APP_DIR/server" && npm ci 2>/dev/null || npm install)
   fi
   if [[ -f "$APP_DIR/web/package.json" ]]; then
     info "安装前端依赖..."
@@ -384,13 +440,22 @@ configure_db() {
 
   # 业务数据库配置
   local db_name db_user db_pwd db_host db_port
-  db_name="$(prompt '数据库名' 'rainyun_reseller')"
-  db_user="$(prompt '数据库用户' 'rainyun')"
-  db_host="$(prompt '数据库主机' '127.0.0.1')"
-  db_port="$(prompt '数据库端口' '2009')"
+  db_name="$(env_or_prompt 'DB_NAME' '数据库名' 'rainyun_reseller')"
+  db_user="$(env_or_prompt 'DB_USER' '数据库用户' 'rainyun')"
+  db_host="$(env_or_prompt 'DB_HOST' '数据库主机' '127.0.0.1')"
+  db_port="$(env_or_prompt 'DB_PORT' '数据库端口' '2009')"
 
-  echo -e "${C_CYAN}请为业务数据库用户 ${db_user} 设置密码（必须手动填写，建议 16 位以上强密码）${C_RESET}"
-  db_pwd="$(prompt_password "$db_user 密码")"
+  if [[ "$DEPLOY_NONINTERACTIVE" == "1" ]]; then
+    db_pwd="${DB_PASS:-}"
+    if [[ -z "$db_pwd" ]]; then
+      err "非交互模式下 DB_PASS 环境变量必填"
+      exit 1
+    fi
+    info "非交互模式：从 DB_PASS 环境变量读取数据库密码"
+  else
+    echo -e "${C_CYAN}请为业务数据库用户 ${db_user} 设置密码（必须手动填写，建议 16 位以上强密码）${C_RESET}"
+    db_pwd="$(prompt_password "$db_user 密码")"
+  fi
 
   # 简单强度校验
   if [[ ${#db_pwd} -lt 8 ]]; then
@@ -435,6 +500,17 @@ SQL
 # ============================================================================
 configure_domain() {
   step "步骤 4：域名配置"
+
+  if [[ "$DEPLOY_NONINTERACTIVE" == "1" ]]; then
+    DOMAIN="${DOMAIN:-}"
+    if [[ -z "$DOMAIN" ]]; then
+      warn "非交互模式：未配置 DOMAIN，将使用服务器 IP 访问"
+    else
+      info "非交互模式：使用 DOMAIN=$DOMAIN"
+    fi
+    log "域名配置完成: ${DOMAIN:-（未配置，使用 IP）}"
+    return
+  fi
 
   while true; do
     local domain
@@ -496,6 +572,13 @@ configure_ssl() {
   SSL_MODE="none"
   SSL_CERT=""
   SSL_KEY=""
+
+  if [[ "$DEPLOY_NONINTERACTIVE" == "1" ]]; then
+    SSL_MODE="${SSL_MODE:-none}"
+    info "非交互模式：使用 SSL_MODE=$SSL_MODE"
+    log "SSL 配置完成: $SSL_MODE"
+    return
+  fi
 
   if [[ -z "$DOMAIN" ]]; then
     warn "未配置域名，跳过 SSL（SSL 需要域名）"
@@ -574,7 +657,7 @@ generate_env() {
 
   cat > .env <<EOF
 # ===========================================
-# 雨云服务器分销平台 v1.0.0 - 生产配置
+# 雨云服务器分销平台 v1.1.0 - 生产配置
 # 由 deploy.sh 自动生成于 $(date)
 # ===========================================
 
@@ -625,6 +708,12 @@ INIT_ADMIN_PASSWORD=
 # ===== 文件上传 =====
 UPLOAD_DIR=./uploads
 UPLOAD_MAX_SIZE=10485760
+
+# ===== 在线更新（v1.1.0 新增）=====
+# 用于管理后台「强制更新」功能调用 GitHub Release API 检测新版本
+# 格式: owner/repo（如 KeKe0904/KeYuCloud）
+UPDATE_REPO=${REPO_URL#https://github.com/}
+UPDATE_REPO=${UPDATE_REPO%.git}
 EOF
 
   chmod 600 .env
@@ -862,15 +951,27 @@ main() {
   echo -e "${C_BOLD}${C_GREEN}"
   cat <<'EOF'
 ============================================================
-  雨云服务器分销平台 v1.0.0 - 一键部署脚本
+  雨云服务器分销平台 v1.1.0 - 一键部署脚本
 ============================================================
 EOF
   echo -e "${C_RESET}"
 
-  # root 检查
-  if [[ $EUID -ne 0 ]]; then
+  # root 检查（非交互模式跳过，便于在容器中以非 root 用户运行）
+  if [[ $EUID -ne 0 && "$DEPLOY_NONINTERACTIVE" != "1" ]]; then
     err "请使用 root 用户运行（或 sudo）"
+    err "非交互模式（DEPLOY_NONINTERACTIVE=1）下不强制 root，但需自行确保权限"
     exit 1
+  fi
+
+  if [[ "$DEPLOY_NONINTERACTIVE" == "1" ]]; then
+    info "运行模式: 非交互式（CI/自动化）"
+    # 非交互模式必填校验
+    if [[ -z "${DB_PASS:-}" ]]; then
+      err "非交互模式下 DB_PASS 环境变量必填"
+      exit 1
+    fi
+  else
+    info "运行模式: 交互式"
   fi
 
   mkdir -p "$(dirname "$LOG_FILE")"
