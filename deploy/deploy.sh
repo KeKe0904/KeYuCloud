@@ -390,14 +390,27 @@ pull_repo() {
     cd "$APP_DIR"
   fi
 
-  # 安装依赖（含 devDependencies，构建需要 @nestjs/cli/prisma/typescript）
+  # 安装依赖（必须含 devDependencies：构建需要 @nestjs/cli/prisma/typescript）
+  # 注意：不能用 --omit=dev，否则 nest build 会报 "nest: not found"
   if [[ -f "$APP_DIR/server/package.json" ]]; then
     info "安装后端依赖（含 devDependencies）..."
-    (cd "$APP_DIR/server" && npm ci 2>/dev/null || npm install)
+    if ! (cd "$APP_DIR/server" && npm ci 2>/dev/null); then
+      warn "npm ci 失败（可能 package-lock.json 不一致），回退到 npm install..."
+      (cd "$APP_DIR/server" && npm install) || {
+        err "后端依赖安装失败"
+        exit 1
+      }
+    fi
   fi
   if [[ -f "$APP_DIR/web/package.json" ]]; then
     info "安装前端依赖..."
-    (cd "$APP_DIR/web" && npm ci 2>/dev/null || npm install)
+    if ! (cd "$APP_DIR/web" && npm ci 2>/dev/null); then
+      warn "前端 npm ci 失败，回退到 npm install..."
+      (cd "$APP_DIR/web" && npm install) || {
+        err "前端依赖安装失败"
+        exit 1
+      }
+    fi
   fi
 
   # Prisma generate
@@ -752,12 +765,56 @@ build_app() {
 
   cd "$APP_DIR/server"
   info "构建后端..."
+
+  # 关键：确保 devDependencies 已安装（@nestjs/cli 在 devDependencies 中）
+  # 兼容旧版 deploy.sh 可能用 npm ci --omit=dev 安装的情况
+  if [[ ! -x "node_modules/.bin/nest" ]]; then
+    warn "未找到 nest CLI（node_modules/.bin/nest），重新安装完整依赖（含 devDependencies）..."
+    # 清除可能存在的 .bin 目录残留，避免符号链接损坏
+    rm -rf node_modules/.bin 2>/dev/null
+    if ! npm install >>"$LOG_FILE" 2>&1; then
+      err "后端依赖安装失败，无法继续构建"
+      err "  请手动执行: cd $APP_DIR/server && npm install"
+      exit 1
+    fi
+    info "依赖安装完成，nest CLI 已就绪"
+  fi
+
+  # 生成 Prisma Client（确保最新）
   npx prisma generate >/dev/null 2>&1
-  npx nest build 2>&1 | tail -3 || npm run build 2>&1 | tail -3
+
+  # 使用 node_modules/.bin/nest 直接调用，避免 npx 的 "could not determine executable" 问题
+  if [[ -x "node_modules/.bin/nest" ]]; then
+    info "执行 nest build..."
+    if ! node_modules/.bin/nest build >>"$LOG_FILE" 2>&1; then
+      err "后端构建失败"
+      err "  日志: $LOG_FILE"
+      err "  请检查 TypeScript 编译错误"
+      exit 1
+    fi
+  else
+    err "nest CLI 仍不存在，无法构建后端"
+    err "  请手动执行: cd $APP_DIR/server && npm install && npm run build"
+    exit 1
+  fi
+  info "后端构建完成"
 
   cd "$APP_DIR/web"
   info "构建前端..."
-  npx vite build 2>&1 | tail -5
+  # 同样确保前端依赖完整
+  if [[ ! -x "node_modules/.bin/vite" ]]; then
+    warn "未找到 vite CLI，重新安装前端依赖..."
+    npm install >>"$LOG_FILE" 2>&1 || {
+      err "前端依赖安装失败"
+      exit 1
+    }
+  fi
+  if ! node_modules/.bin/vite build >>"$LOG_FILE" 2>&1; then
+    err "前端构建失败"
+    err "  日志: $LOG_FILE"
+    exit 1
+  fi
+  info "前端构建完成"
 
   log "构建完成"
 }
