@@ -626,7 +626,8 @@ generate_env() {
   local jwt_secret admin_jwt_secret aes_secret
   jwt_secret="$(openssl rand -hex 32)"
   admin_jwt_secret="$(openssl rand -hex 32)"
-  aes_secret="$(openssl rand -hex 32)"
+  # AES_SECRET 要求恰好 32 字节（32 个字符），用 openssl rand -hex 16 生成 32 个 hex 字符
+  aes_secret="$(openssl rand -hex 16)"
 
   # 预先计算 UPDATE_REPO（owner/repo 格式），避免在 heredoc 中展开未定义变量
   # 注意：heredoc 中的 UPDATE_REPO=xxx 只是写入文件的内容，不会在 shell 中执行赋值

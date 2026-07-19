@@ -8,69 +8,140 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>雨云服务器分销平台 - 部署向导</title>
+  <!-- Google Fonts：Manrope（正文）/ Fraunces（Display）/ JetBrains Mono（Mono） -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Fraunces:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #0f1419;
-      --bg-card: #1a1f29;
-      --bg-input: #0d1117;
-      --border: #2d333b;
-      --border-hover: #3d444d;
-      --text-primary: #e6edf3;
-      --text-secondary: #b1bac4;
-      --text-tertiary: #7d8590;
-      --gold: #d4af37;
-      --gold-light: #f0d068;
-      --green: #3fb950;
-      --red: #f85149;
-      --yellow: #d29922;
-      --blue: #58a6ff;
-      --radius: 6px;
-      --mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+      /* 夜间模式烟紫配色 */
+      --bg: #0f0f10;
+      --bg-card: #18181a;
+      --bg-card-glass: rgba(24, 24, 26, 0.72);
+      --bg-input: rgba(24, 24, 26, 0.5);
+      --border: #28282c;
+      --border-hover: #3d3d40;
+      --text-primary: #ededed;
+      --text-secondary: #a8a8a8;
+      --text-tertiary: #6b6b6b;
+      --primary: #9d8ec7;       /* 烟紫 */
+      --primary-hover: #b3a5d8; /* 烟紫 hover */
+      --green: #4ade80;
+      --red: #f87171;
+      --yellow: #facc15;
+      --blue: #60a5fa;
+      /* 圆角 */
+      --radius-card: 12px;
+      --radius-btn: 8px;
+      --radius-input: 8px;
+      --radius-badge: 6px;
+      /* 阴影 */
+      --shadow-card: 0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
+      --shadow-btn: 0 1px 2px rgba(0, 0, 0, 0.3);
+      /* 字体 */
+      --font-body: 'Manrope', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+      --font-display: 'Fraunces', serif;
+      --font-mono: 'JetBrains Mono', monospace;
     }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      font-family: var(--font-body);
       background: var(--bg);
       color: var(--text-primary);
       min-height: 100vh;
       line-height: 1.6;
       font-size: 14px;
       padding: 24px;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
+
+    /* 滚动条：6px 宽，3px 圆角 */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+
+    /* 选区：烟紫半透明 */
+    ::selection { background: rgba(157, 142, 199, 0.3); color: var(--text-primary); }
+
     .container { max-width: 920px; margin: 0 auto; }
 
-    /* 顶部标题 */
+    /* 入场动画：fadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-up { animation: fadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+      .fade-up { animation: none !important; }
+    }
+
+    /* ============ Hero 区 ============ */
     .header {
       text-align: center;
-      padding: 24px 0 32px;
-      border-bottom: 1px solid var(--border);
-      margin-bottom: 32px;
+      padding: 32px 0 36px;
+      margin-bottom: 36px;
+    }
+    .header .eyebrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 18px;
+      color: var(--primary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    .header .eyebrow::before,
+    .header .eyebrow::after {
+      content: '';
+      width: 24px;
+      height: 1px;
+      background: var(--primary);
+      opacity: 0.7;
     }
     .header h1 {
-      font-size: 28px;
+      font-family: var(--font-display);
+      font-size: 40px;
       font-weight: 600;
-      color: var(--gold);
-      letter-spacing: 1px;
-      margin-bottom: 8px;
+      color: var(--text-primary);
+      letter-spacing: -0.5px;
+      line-height: 1.2;
+      margin-bottom: 10px;
     }
-    .header p {
-      color: var(--text-tertiary);
-      font-size: 13px;
-      letter-spacing: 0.5px;
+    .header .subtitle {
+      color: var(--text-secondary);
+      font-size: 14px;
+      letter-spacing: 0.2px;
     }
     .header .version {
       display: inline-block;
-      padding: 2px 8px;
-      background: rgba(212, 175, 55, 0.1);
-      color: var(--gold-light);
-      border: 1px solid rgba(212, 175, 55, 0.3);
-      border-radius: 4px;
-      font-family: var(--mono);
+      padding: 3px 10px;
+      background: rgba(157, 142, 199, 0.12);
+      color: var(--primary);
+      border: 1px solid rgba(157, 142, 199, 0.35);
+      border-radius: var(--radius-badge);
+      font-family: var(--font-mono);
       font-size: 11px;
+      font-weight: 500;
       margin-left: 8px;
+      vertical-align: middle;
+      position: relative;
+      top: -3px;
     }
 
-    /* 步骤指示器 */
+    /* ============ 步骤指示器 ============ */
     .steps {
       display: flex;
       justify-content: space-between;
@@ -80,10 +151,10 @@
     .steps::before {
       content: '';
       position: absolute;
-      top: 18px;
+      top: 16px;   /* 32px 圆点居中：32/2 = 16 */
       left: 0;
       right: 0;
-      height: 2px;
+      height: 1px; /* 1px 横线，不是 2px */
       background: var(--border);
       z-index: 0;
     }
@@ -97,28 +168,29 @@
       flex: 1;
     }
     .step-circle {
-      width: 36px;
-      height: 36px;
+      width: 32px;  /* 32px 圆点 */
+      height: 32px;
       border-radius: 50%;
       background: var(--bg-card);
-      border: 2px solid var(--border);
+      border: 2px solid var(--border); /* 2px 边框 */
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: 600;
-      font-size: 14px;
+      font-size: 13px;
       color: var(--text-tertiary);
       transition: all 0.3s;
+      font-family: var(--font-mono);
     }
     .step.active .step-circle {
-      border-color: var(--gold);
-      color: var(--gold);
-      background: rgba(212, 175, 55, 0.1);
+      border-color: var(--primary);
+      color: var(--primary);
+      background: rgba(157, 142, 199, 0.12);
     }
     .step.completed .step-circle {
       background: var(--green);
       border-color: var(--green);
-      color: #fff;
+      color: #0f0f10;
     }
     .step.error .step-circle {
       background: var(--red);
@@ -130,37 +202,70 @@
       color: var(--text-secondary);
       text-align: center;
       white-space: nowrap;
+      letter-spacing: 0.2px;
     }
-    .step.active .step-label { color: var(--gold); font-weight: 600; }
+    .step.active .step-label { color: var(--primary); font-weight: 600; }
     .step.completed .step-label { color: var(--green); }
 
-    /* 卡片 */
+    /* ============ 卡片：玻璃质感 ============ */
     .card {
-      background: var(--bg-card);
+      position: relative;
+      background: var(--bg-card-glass);
+      -webkit-backdrop-filter: blur(16px) saturate(120%);
+      backdrop-filter: blur(16px) saturate(120%);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border-radius: var(--radius-card);
       padding: 24px;
       margin-bottom: 20px;
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+    /* 卡片顶部 1px 高光渐变 */
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+      pointer-events: none;
     }
     .card-title {
-      font-size: 16px;
+      font-family: var(--font-display);
+      font-size: 22px;
       font-weight: 600;
-      margin-bottom: 6px;
+      margin-bottom: 8px;
       color: var(--text-primary);
+      letter-spacing: -0.2px;
     }
     .card-desc {
       color: var(--text-tertiary);
       font-size: 13px;
       margin-bottom: 20px;
+      line-height: 1.6;
+    }
+    .card-desc code,
+    .form-hint code,
+    .alert code,
+    .log-box code,
+    .done-card code {
+      font-family: var(--font-mono);
+      font-size: 0.9em;
+      background: rgba(157, 142, 199, 0.1);
+      color: var(--primary);
+      padding: 1px 6px;
+      border-radius: 4px;
     }
 
-    /* 表单 */
+    /* ============ 表单 ============ */
     .form-group { margin-bottom: 16px; }
     .form-group label {
       display: block;
       margin-bottom: 6px;
       font-size: 13px;
       color: var(--text-secondary);
+      font-weight: 500;
     }
     .form-group label .required { color: var(--red); margin-left: 2px; }
     .form-group input[type="text"],
@@ -171,63 +276,145 @@
       width: 100%;
       padding: 10px 12px;
       background: var(--bg-input);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
       border: 1px solid var(--border);
-      border-radius: 4px;
+      border-radius: var(--radius-input);
       color: var(--text-primary);
       font-size: 14px;
       font-family: inherit;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, background 0.2s;
     }
+    .form-group input::placeholder { color: var(--text-tertiary); }
     .form-group input:focus,
     .form-group select:focus {
       outline: none;
-      border-color: var(--gold);
+      border-color: var(--primary);
+      background: rgba(24, 24, 26, 0.7);
     }
-    .form-group .hint {
+    .form-group select {
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a8a8' stroke-width='2'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 32px;
+    }
+    .form-hint {
       margin-top: 6px;
       font-size: 12px;
       color: var(--text-tertiary);
+      line-height: 1.5;
     }
+    .form-hint a {
+      color: var(--primary);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .form-hint a:hover { color: var(--primary-hover); text-decoration: underline; }
     .form-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 12px;
     }
+
+    /* 密码输入框 + 眼睛图标切换 */
+    .input-with-toggle {
+      position: relative;
+    }
+    .input-with-toggle input { padding-right: 40px; }
+    .input-toggle {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
+      border: none;
+      color: var(--text-tertiary);
+      cursor: pointer;
+      padding: 6px;
+      font-size: 16px;
+      line-height: 1;
+      transition: color 0.2s;
+    }
+    .input-toggle:hover { color: var(--text-secondary); }
+
+    /* 复选框标签（用于 API Key 跳过等） */
+    .checkbox-label {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+    .checkbox-label input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      margin-top: 2px;
+      accent-color: var(--primary);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
     .checkbox-group {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-top: 8px;
+      margin-top: 12px;
     }
-    .checkbox-group input { width: auto; }
+    .checkbox-group input[type="checkbox"] {
+      width: auto;
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+    .checkbox-group label {
+      margin: 0;
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
 
-    /* 按钮 */
+    /* ============ 按钮 ============ */
     .btn {
-      padding: 10px 20px;
+      padding: 10px 22px;
       border: 1px solid var(--border);
-      border-radius: 4px;
-      background: var(--bg-input);
+      border-radius: var(--radius-btn);
+      background: var(--bg-card);
       color: var(--text-primary);
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 500;
       cursor: pointer;
       transition: all 0.2s;
       font-family: inherit;
+      letter-spacing: 0.3px;
+      box-shadow: var(--shadow-btn);
     }
     .btn:hover { border-color: var(--border-hover); }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-primary {
-      background: var(--gold);
-      border-color: var(--gold);
-      color: #1a1f29;
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #0f0f10;
       font-weight: 600;
     }
-    .btn-primary:hover { background: var(--gold-light); border-color: var(--gold-light); }
-    .btn-secondary { background: transparent; }
+    .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+    .btn-primary:disabled { background: var(--primary); border-color: var(--primary); opacity: 0.6; }
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      box-shadow: none;
+    }
+    .btn-secondary:hover {
+      border-color: var(--primary);
+      color: var(--primary-hover);
+    }
     .btn-success {
       background: var(--green);
       border-color: var(--green);
-      color: #fff;
+      color: #0f0f10;
+      font-weight: 600;
     }
     .actions {
       display: flex;
@@ -236,51 +423,57 @@
       margin-top: 24px;
     }
 
-    /* 检测项 */
+    /* ============ 检测项 ============ */
     .check-item {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 10px 14px;
+      padding: 12px 14px;
       background: var(--bg-input);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
       border: 1px solid var(--border);
-      border-radius: 4px;
+      border-radius: var(--radius-input);
       margin-bottom: 8px;
+      transition: border-color 0.2s;
     }
+    .check-item:hover { border-color: var(--border-hover); }
     .check-item.ok { border-left: 3px solid var(--green); }
     .check-item.fail { border-left: 3px solid var(--red); }
     .check-item.warn { border-left: 3px solid var(--yellow); }
     .check-item .label { display: flex; align-items: center; gap: 10px; }
-    .check-item .name { font-weight: 500; }
+    .check-item .name { font-weight: 500; color: var(--text-primary); }
     .check-item .value {
-      font-family: var(--mono);
+      font-family: var(--font-mono);
       font-size: 12px;
       color: var(--text-tertiary);
     }
     .check-item .status {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 3px;
+      padding: 3px 8px;
+      border-radius: var(--radius-badge);
+      letter-spacing: 0.3px;
     }
-    .check-item .status.ok { color: var(--green); background: rgba(63, 185, 80, 0.1); }
-    .check-item .status.fail { color: var(--red); background: rgba(248, 81, 73, 0.1); }
-    .check-item .status.warn { color: var(--yellow); background: rgba(210, 153, 34, 0.1); }
+    .check-item .status.ok { color: var(--green); background: rgba(74, 222, 128, 0.1); }
+    .check-item .status.fail { color: var(--red); background: rgba(248, 113, 113, 0.1); }
+    .check-item .status.warn { color: var(--yellow); background: rgba(250, 204, 21, 0.1); }
 
-    /* 提示 */
+    /* ============ 提示 alertBox ============ */
     .alert {
       padding: 12px 16px;
-      border-radius: 4px;
+      border-radius: var(--radius-input);
       margin-bottom: 16px;
       font-size: 13px;
+      line-height: 1.6;
     }
-    .alert-info { background: rgba(88, 166, 255, 0.1); border: 1px solid rgba(88, 166, 255, 0.3); color: var(--blue); }
-    .alert-success { background: rgba(63, 185, 80, 0.1); border: 1px solid rgba(63, 185, 80, 0.3); color: var(--green); }
-    .alert-warn { background: rgba(210, 153, 34, 0.1); border: 1px solid rgba(210, 153, 34, 0.3); color: var(--yellow); }
-    .alert-error { background: rgba(248, 81, 73, 0.1); border: 1px solid rgba(248, 81, 73, 0.3); color: var(--red); }
+    .alert-info { background: rgba(96, 165, 250, 0.08); border: 1px solid rgba(96, 165, 250, 0.3); color: var(--blue); }
+    .alert-success { background: rgba(74, 222, 128, 0.08); border: 1px solid rgba(74, 222, 128, 0.3); color: var(--green); }
+    .alert-warn { background: rgba(250, 204, 21, 0.08); border: 1px solid rgba(250, 204, 21, 0.3); color: var(--yellow); }
+    .alert-error { background: rgba(248, 113, 113, 0.08); border: 1px solid rgba(248, 113, 113, 0.3); color: var(--red); }
 
-    /* 完成页 */
-    .done-card { text-align: center; padding: 40px 24px; }
+    /* ============ 完成页 ============ */
+    .done-card { text-align: center; padding: 48px 24px; }
     .done-icon {
       width: 72px;
       height: 72px;
@@ -291,24 +484,40 @@
       align-items: center;
       justify-content: center;
       font-size: 36px;
-      color: #fff;
+      color: #0f0f10;
+      font-weight: 700;
+      box-shadow: 0 0 32px rgba(74, 222, 128, 0.3);
     }
-    .done-card h2 { color: var(--green); margin-bottom: 8px; }
+    .done-card h2 {
+      font-family: var(--font-display);
+      font-size: 32px;
+      font-weight: 600;
+      color: var(--green);
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
     .done-card .site-url {
       display: inline-block;
-      padding: 10px 20px;
+      padding: 12px 24px;
       background: var(--bg-input);
-      border: 1px solid var(--gold);
-      border-radius: 4px;
-      font-family: var(--mono);
-      color: var(--gold);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--primary);
+      border-radius: var(--radius-input);
+      font-family: var(--font-mono);
+      color: var(--primary);
       margin: 16px 0;
+      font-size: 14px;
       text-decoration: none;
-      transition: background 0.2s;
+      transition: all 0.2s;
     }
-    .done-card .site-url:hover { background: rgba(212, 175, 55, 0.1); }
+    .done-card .site-url:hover {
+      background: rgba(157, 142, 199, 0.1);
+      color: var(--primary-hover);
+      border-color: var(--primary-hover);
+    }
 
-    /* 加载动画 */
+    /* ============ 加载动画 spinner ============ */
     .spinner {
       display: inline-block;
       width: 14px;
@@ -322,15 +531,17 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* 日志输出 */
+    /* ============ 日志输出 ============ */
     .log-box {
       background: var(--bg-input);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
       border: 1px solid var(--border);
-      border-radius: 4px;
+      border-radius: var(--radius-input);
       padding: 12px;
       max-height: 240px;
       overflow-y: auto;
-      font-family: var(--mono);
+      font-family: var(--font-mono);
       font-size: 12px;
       color: var(--text-secondary);
       white-space: pre-wrap;
@@ -342,37 +553,43 @@
       .form-row { grid-template-columns: 1fr; }
       .steps { gap: 4px; }
       .step-label { font-size: 10px; }
+      .header h1 { font-size: 30px; }
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <!-- 顶部 -->
-    <div class="header">
+    <!-- Hero 区 -->
+    <div class="header fade-up" style="animation-delay:0s">
+      <div class="eyebrow">RAINUN · DEPLOY WIZARD</div>
       <h1>雨云服务器分销平台 <span class="version">v1.0.0</span></h1>
-      <p>部署向导 · 共 5 步 · 完成后即可访问站点</p>
+      <div class="subtitle">部署向导 · 共 6 步 · 完成后即可访问站点</div>
     </div>
 
-    <!-- 步骤指示器 -->
-    <div class="steps" id="steps">
+    <!-- 步骤指示器（6 步显示） -->
+    <div class="steps fade-up" id="steps" style="animation-delay:0.08s">
       <div class="step active" data-step="1">
         <div class="step-circle">1</div>
         <div class="step-label">环境检测</div>
       </div>
       <div class="step" data-step="2">
         <div class="step-circle">2</div>
-        <div class="step-label">连接数据库</div>
+        <div class="step-label">API Key</div>
       </div>
       <div class="step" data-step="3">
         <div class="step-circle">3</div>
-        <div class="step-label">域名配置</div>
+        <div class="step-label">数据库</div>
       </div>
       <div class="step" data-step="4">
         <div class="step-circle">4</div>
-        <div class="step-label">配置管理员</div>
+        <div class="step-label">域名</div>
       </div>
       <div class="step" data-step="5">
         <div class="step-circle">5</div>
+        <div class="step-label">管理员</div>
+      </div>
+      <div class="step" data-step="6">
+        <div class="step-circle">6</div>
         <div class="step-label">启动服务</div>
       </div>
     </div>
@@ -389,11 +606,11 @@
     </div>
 
     <!-- 向导令牌输入弹层（首次访问时显示） -->
-    <div id="token-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:1000;align-items:center;justify-content:center;">
-      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:32px;max-width:460px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.6);">
+    <div id="token-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:1000;align-items:center;justify-content:center;">
+      <div style="background:var(--bg-card-glass);-webkit-backdrop-filter:blur(16px) saturate(120%);backdrop-filter:blur(16px) saturate(120%);border:1px solid var(--border);border-radius:var(--radius-card);padding:32px;max-width:460px;width:90%;box-shadow:var(--shadow-card);position:relative;overflow:hidden;">
         <div style="text-align:center;margin-bottom:20px;">
-          <div style="font-size:32px;color:var(--gold);margin-bottom:8px;">🔐</div>
-          <h2 style="color:var(--gold);font-size:20px;margin-bottom:8px;">向导访问令牌</h2>
+          <div style="font-size:32px;color:var(--primary);margin-bottom:8px;">🔐</div>
+          <h2 style="font-family:var(--font-display);color:var(--text-primary);font-size:22px;margin-bottom:8px;font-weight:600;letter-spacing:-0.3px;">向导访问令牌</h2>
           <p style="color:var(--text-tertiary);font-size:13px;line-height:1.6;">
             为防止未授权访问，请输入部署脚本控制台显示的向导令牌。<br>
             令牌仅在本次部署期间有效。
@@ -401,7 +618,7 @@
         </div>
         <div class="form-group" style="margin-bottom:16px;">
           <input type="text" id="token-input" placeholder="粘贴向导令牌（32 位十六进制）"
-            style="width:100%;font-family:var(--mono);font-size:13px;text-align:center;"
+            style="width:100%;font-family:var(--font-mono);font-size:13px;text-align:center;"
             autocomplete="off" />
         </div>
         <div id="token-error" style="color:var(--red);font-size:12px;min-height:18px;margin-bottom:12px;text-align:center;"></div>
@@ -417,13 +634,14 @@
     // ============ 状态 ============
     const state = {
       currentStep: 1,
-      maxStep: 5,
+      maxStep: 6,  // 从 5 改为 6
       meta: null,
       envCheck: null,
       dbTested: false,
       domainSaved: false,
       adminSetup: false,
       servicesStarted: false,
+      apiKeyConfigured: false,  // 新增
       siteUrl: '',
       wizardToken: '',  // 向导访问令牌（从 sessionStorage 读取）
     };
@@ -479,15 +697,39 @@
       return e;
     }
 
+    // currentStep 到步骤指示器序号的映射
+    // currentStep 1-3 → indicator 1-3
+    // currentStep 4（数据库迁移，自动执行）→ indicator 3（数据库子操作）
+    // currentStep 5-7 → indicator 4-6
+    // currentStep 8 → 完成页（全部完成，indicator 7 超出最后一步）
+    function indicatorStepFor(currentStep) {
+      if (currentStep <= 3) return currentStep;
+      if (currentStep === 4) return 3;
+      if (currentStep <= 7) return currentStep - 1;
+      return 7; // currentStep === 8，标记全部完成
+    }
+
     function setStep(n) {
+      // 步骤 4 是数据库迁移的过渡态（迁移已在 testDb() 内自动执行）
+      // 直接自动前进到步骤 5（域名配置），无需渲染独立界面
+      if (n === 4) {
+        state.currentStep = 4;
+        setStep(5);
+        return;
+      }
       state.currentStep = n;
+      updateStepIndicator(n);
+      renderStep(n);
+    }
+
+    function updateStepIndicator(currentStep) {
+      const indicatorStep = indicatorStepFor(currentStep);
       document.querySelectorAll('.step').forEach((s) => {
         const num = parseInt(s.dataset.step, 10);
         s.classList.remove('active', 'completed', 'error');
-        if (num < n) s.classList.add('completed');
-        else if (num === n) s.classList.add('active');
+        if (num < indicatorStep) s.classList.add('completed');
+        else if (num === indicatorStep) s.classList.add('active');
       });
-      renderStep(n);
     }
 
     function renderActions({ prev = true, next = true, nextText = '下一步', nextDisabled = false, nextPrimary = true } = {}) {
@@ -516,8 +758,7 @@
         state.siteUrl = state.meta.siteUrl;
         if (r.data.data.done) {
           // 向导已完成，直接显示完成页
-          state.currentStep = 6;
-          renderDone();
+          setStep(8);
           return false;
         }
       }
@@ -528,7 +769,7 @@
     function renderStep1() {
       const c = $('#step-content');
       c.innerHTML = `
-        <div class="card">
+        <div class="card fade-up" style="animation-delay:0s">
           <div class="card-title">环境检测</div>
           <div class="card-desc">检测服务器是否满足运行要求，缺失项请先执行 <code>./deploy/deploy.sh</code> 安装</div>
           <div id="env-checks"><p style="color:var(--text-tertiary);">点击下方按钮开始检测...</p></div>
@@ -584,7 +825,7 @@
       if (d.allOk) {
         box.appendChild(el('div', { className: 'alert alert-success', style: 'margin-top:16px;' },
           '✓ 环境检测全部通过，可以继续下一步'));
-        renderActions({ prev: false, next: true, nextText: '下一步：连接数据库' });
+        renderActions({ prev: false, next: true, nextText: '下一步：配置 API Key' });
       } else {
         const missingList = d.missing.join('、');
         box.appendChild(el('div', { className: 'alert alert-warn', style: 'margin-top:16px;' },
@@ -599,12 +840,106 @@
       }
     }
 
-    // ============ 渲染：步骤 2 - 数据库连接 ============
+    // ============ 渲染：步骤 2 - 配置雨云 API Key（新增） ============
     function renderStep2() {
+      const c = $('#step-content');
+      c.innerHTML = `
+        <div class="card fade-up" style="animation-delay:0s">
+          <div class="card-title">配置雨云 API Key</div>
+          <div class="card-desc">用于对接雨云上游 API（商品同步、订单开通、工单转发等）。可现在配置，也可跳过使用 MOCK 模式。</div>
+
+          <div class="form-group">
+            <label>API Base URL</label>
+            <input id="api-base-input" type="text" value="https://api.v2.rainyun.com" placeholder="https://api.v2.rainyun.com">
+          </div>
+
+          <div class="form-group">
+            <label>API Key</label>
+            <div class="input-with-toggle">
+              <input id="api-key-input" type="password" placeholder="输入雨云 API Key" autocomplete="off">
+              <button type="button" class="input-toggle" id="api-key-toggle" aria-label="切换显示">👁</button>
+            </div>
+            <div class="form-hint">
+              从 <a href="https://app.rainyun.com/dev/api" target="_blank" rel="noopener">雨云开发者中心</a> 获取
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input id="skip-api-key" type="checkbox">
+              <span>跳过此步骤，使用 MOCK 模式（稍后可在管理后台配置）</span>
+            </label>
+          </div>
+
+          <div id="api-key-result"></div>
+        </div>
+      `;
+
+      // 眼睛图标切换密码显示
+      const toggle = $('#api-key-toggle');
+      const input = $('#api-key-input');
+      if (toggle && input) {
+        toggle.addEventListener('click', () => {
+          if (input.type === 'password') {
+            input.type = 'text';
+            toggle.textContent = '🙈';
+          } else {
+            input.type = 'password';
+            toggle.textContent = '👁';
+          }
+        });
+      }
+
+      // 监听 skip 复选框，切换按钮文字
+      const skipCheckbox = $('#skip-api-key');
+      if (skipCheckbox) {
+        skipCheckbox.addEventListener('change', () => {
+          const btnNext = $('#btn-next');
+          if (btnNext) btnNext.textContent = skipCheckbox.checked ? '跳过并继续' : '保存并继续';
+        });
+      }
+
+      renderActions({ prev: true, next: true, nextText: '保存并继续' });
+    }
+
+    async function configureApiKey() {
+      const btnNext = $('#btn-next');
+      const skip = $('#skip-api-key').checked;
+      const apiKey = $('#api-key-input').value.trim();
+      const apiBase = $('#api-base-input').value.trim() || 'https://api.v2.rainyun.com';
+
+      if (!skip && !apiKey) {
+        $('#api-key-result').innerHTML = alertBox('error', '请输入 API Key 或勾选跳过');
+        return;
+      }
+
+      btnNext.disabled = true;
+      btnNext.innerHTML = '<span class="spinner"></span>保存中...';
+
+      const body = { apiKey, apiBase, skip };
+      const r = await api('/api/wizard/configure-api-key', body);
+      btnNext.disabled = false;
+      btnNext.textContent = '保存并继续';
+
+      if (r.ok && r.data.success) {
+        state.apiKeyConfigured = true;
+        const d = r.data.data;
+        const msg = skip ?
+          `✓ 已跳过 API Key 配置，使用 MOCK 模式` :
+          `✓ API Key 已配置（${d.apiKeyMasked}），将在服务启动后生效`;
+        $('#api-key-result').innerHTML = alertBox('success', msg);
+        btnNext.textContent = '下一步：连接数据库';
+      } else {
+        $('#api-key-result').innerHTML = alertBox('error', `保存失败：${r.data.message}`);
+      }
+    }
+
+    // ============ 渲染：步骤 3 - 数据库连接（原步骤 2） ============
+    function renderStep3() {
       const c = $('#step-content');
       const meta = state.meta || {};
       c.innerHTML = `
-        <div class="card">
+        <div class="card fade-up" style="animation-delay:0s">
           <div class="card-title">连接数据库</div>
           <div class="card-desc">填写数据库连接信息并测试连接。密码必填，其他可使用默认值。</div>
           <div class="form-row">
@@ -630,7 +965,7 @@
           <div class="form-group">
             <label>密码 <span class="required">*</span></label>
             <input type="password" id="db-password" placeholder="请输入数据库密码" autocomplete="new-password" />
-            <div class="hint">密码不会保存到向导，只会写入 server/.env</div>
+            <div class="form-hint">密码不会保存到向导，只会写入 server/.env</div>
           </div>
           <div id="db-result"></div>
         </div>
@@ -696,18 +1031,18 @@
       }
     }
 
-    // ============ 渲染：步骤 3 - 域名配置 ============
-    function renderStep3() {
+    // ============ 渲染：步骤 5 - 域名配置（原步骤 3） ============
+    function renderStep5() {
       const c = $('#step-content');
       const meta = state.meta || {};
       c.innerHTML = `
-        <div class="card">
+        <div class="card fade-up" style="animation-delay:0s">
           <div class="card-title">域名配置</div>
           <div class="card-desc">填写站点访问域名。已部署的会预填，可二次修改。系统会自动检测域名是否解析到本机。</div>
           <div class="form-group">
             <label>域名 <span class="required">*</span></label>
             <input type="text" id="domain-input" value="${meta.domain || ''}" placeholder="例如：example.com" />
-            <div class="hint">不要包含 http:// 或 https://</div>
+            <div class="form-hint">不要包含 http:// 或 https://</div>
           </div>
           <div class="form-group">
             <label>SSL 模式</label>
@@ -759,11 +1094,11 @@
       }
     }
 
-    // ============ 渲染：步骤 4 - 配置管理员 ============
-    function renderStep4() {
+    // ============ 渲染：步骤 6 - 配置管理员（原步骤 4） ============
+    function renderStep6() {
       const c = $('#step-content');
       c.innerHTML = `
-        <div class="card">
+        <div class="card fade-up" style="animation-delay:0s">
           <div class="card-title">配置超级管理员账号</div>
           <div class="card-desc">这是建站者账号，拥有最高权限。请妥善保管密码。</div>
           <div class="form-row">
@@ -783,7 +1118,7 @@
           <div class="form-group">
             <label>密码 <span class="required">*</span></label>
             <input type="password" id="admin-password" placeholder="至少 8 位，以字母开头，含数字和特殊字符" autocomplete="new-password" />
-            <div class="hint">密码将以 bcrypt 12 轮哈希存储，不会明文保存</div>
+            <div class="form-hint">密码将以 bcrypt 12 轮哈希存储，不会明文保存</div>
           </div>
           <div class="form-group">
             <label>确认密码 <span class="required">*</span></label>
@@ -826,11 +1161,11 @@
       }
     }
 
-    // ============ 渲染：步骤 5 - 启动服务 ============
-    function renderStep5() {
+    // ============ 渲染：步骤 7 - 启动服务（原步骤 5） ============
+    function renderStep7() {
       const c = $('#step-content');
       c.innerHTML = `
-        <div class="card">
+        <div class="card fade-up" style="animation-delay:0s">
           <div class="card-title">启动前后端服务</div>
           <div class="card-desc">最后一步：通过 PM2 启动后端服务，前端由 Nginx 直接提供静态文件。</div>
           ${alertBox('info', '点击"启动服务"按钮，系统将：\n1. 使用 PM2 启动后端 (rainyun-api)\n2. 保存 PM2 进程列表\n3. 健康检查 (http://127.0.0.1:3001/api/health)\n4. 标记向导完成，并自动关闭向导服务')}
@@ -852,16 +1187,16 @@
         state.servicesStarted = true;
         if (d.backendHealthy) {
           $('#start-result').innerHTML = alertBox('success',
-            `✓ 后端启动成功并通过健康检查<br>PM2 进程已保存<br>站点 URL：<code>${d.siteUrl}</code><br><span style="color:var(--gold);">🔒 向导服务将在 3 秒后自动关闭</span>`);
+            `✓ 后端启动成功并通过健康检查<br>PM2 进程已保存<br>站点 URL：<code>${d.siteUrl}</code><br><span style="color:var(--primary);">🔒 向导服务将在 3 秒后自动关闭</span>`);
           btnNext.textContent = '完成';
           btnNext.disabled = false;
-          btnNext.onclick = () => { renderDone(); };
+          btnNext.onclick = () => { setStep(8); };
         } else {
           $('#start-result').innerHTML = alertBox('warn',
-            `⚠ 后端已启动但健康检查未通过<br>请检查日志：<code>pm2 logs rainyun-api</code><br>健康检查输出：<pre>${d.healthOutput || ''}</pre><br><span style="color:var(--gold);">🔒 向导服务将在 3 秒后自动关闭</span>`);
+            `⚠ 后端已启动但健康检查未通过<br>请检查日志：<code>pm2 logs rainyun-api</code><br>健康检查输出：<pre>${d.healthOutput || ''}</pre><br><span style="color:var(--primary);">🔒 向导服务将在 3 秒后自动关闭</span>`);
           btnNext.disabled = false;
           btnNext.textContent = '查看完成页';
-          btnNext.onclick = () => { renderDone(); };
+          btnNext.onclick = () => { setStep(8); };
         }
       } else {
         $('#start-result').innerHTML = alertBox('error', `启动失败：${r.data.message}<br><pre>${(r.data.data && r.data.data.stderr) || ''}</pre>`);
@@ -871,19 +1206,16 @@
 
     // ============ 完成页 ============
     function renderDone() {
-      document.querySelectorAll('.step').forEach((s) => {
-        s.classList.remove('active');
-        s.classList.add('completed');
-      });
+      updateStepIndicator(8);
       $('#step-content').innerHTML = `
-        <div class="card done-card">
+        <div class="card done-card fade-up" style="animation-delay:0s">
           <div class="done-icon">✓</div>
           <h2>部署完成！</h2>
           <p style="color:var(--text-secondary);">您可以访问以下地址进入系统</p>
           <a class="site-url" href="${state.siteUrl || 'http://localhost'}" target="_blank">${state.siteUrl || 'http://localhost'}</a>
           <div style="margin-top:24px;color:var(--text-tertiary);font-size:13px;">
             <p>管理员登录：<code>${state.meta && state.meta.siteUrl ? state.meta.siteUrl.replace(/^https?:\/\//, '') + '/admin' : '/admin'}</code></p>
-            <p style="margin-top:8px;color:var(--gold);">🔒 向导服务已自动关闭（PM2 进程已删除），外部无法再访问本向导页面</p>
+            <p style="margin-top:8px;color:var(--primary);">🔒 向导服务已自动关闭（PM2 进程已删除），外部无法再访问本向导页面</p>
             <p style="margin-top:8px;">如需重新配置，请通过 SSH 登录服务器，删除 <code>deploy/.wizard-done</code> 文件后执行 <code>pm2 restart rainyun-wizard</code> 重启向导</p>
           </div>
         </div>
@@ -895,57 +1227,80 @@
     function renderStep(n) {
       switch (n) {
         case 1: renderStep1(); break;
-        case 2: renderStep2(); break;
-        case 3: renderStep3(); break;
-        case 4: renderStep4(); break;
-        case 5: renderStep5(); break;
-        case 6: renderDone(); break;
+        case 2: renderStep2(); break;   // API Key（新）
+        case 3: renderStep3(); break;   // 数据库（原步骤 2）
+        // case 4: 数据库迁移过渡态，setStep(4) 自动前进到 5，不渲染
+        case 5: renderStep5(); break;   // 域名（原步骤 3）
+        case 6: renderStep6(); break;   // 管理员（原步骤 4）
+        case 7: renderStep7(); break;   // 启动（原步骤 5）
+        case 8: renderDone(); break;    // 完成页
       }
     }
 
     async function nextStep() {
       // 根据当前步骤执行特定操作
       if (state.currentStep === 1) {
-        // 环境检测：直接跳到步骤 2
+        // 环境检测：直接跳到步骤 2（API Key）
         setStep(2);
         return;
       }
       if (state.currentStep === 2) {
-        if (!state.dbTested) {
-          await testDb();
+        // 新：API Key 配置
+        if (!state.apiKeyConfigured) {
+          await configureApiKey();
           return;
         }
         setStep(3);
         return;
       }
       if (state.currentStep === 3) {
-        if (!state.domainSaved) {
-          await saveDomain();
+        // 数据库（原步骤 2）
+        if (!state.dbTested) {
+          await testDb();
           return;
         }
-        setStep(4);
+        setStep(4);  // migrate-db 自动执行，不需要单独步骤（setStep(4) 会自动前进到 5）
         return;
       }
+      // 注意：步骤 4 是数据库迁移过渡态，setStep(4) 自动跳到 5
       if (state.currentStep === 4) {
-        if (!state.adminSetup) {
-          await setupAdmin();
-          return;
-        }
         setStep(5);
         return;
       }
       if (state.currentStep === 5) {
+        // 域名（原步骤 3）
+        if (!state.domainSaved) {
+          await saveDomain();
+          return;
+        }
+        setStep(6);
+        return;
+      }
+      if (state.currentStep === 6) {
+        // 管理员（原步骤 4）
+        if (!state.adminSetup) {
+          await setupAdmin();
+          return;
+        }
+        setStep(7);
+        return;
+      }
+      if (state.currentStep === 7) {
+        // 启动（原步骤 5）
         if (!state.servicesStarted) {
           await startServices();
           return;
         }
-        renderDone();
+        setStep(8);  // 完成页
         return;
       }
     }
 
     function prevStep() {
-      if (state.currentStep > 1) setStep(state.currentStep - 1);
+      // 跳过步骤 4（迁移过渡态，自动前进到 5）
+      let target = state.currentStep - 1;
+      if (target === 4) target = 3;
+      if (target >= 1) setStep(target);
     }
 
     // ============ 向导令牌：显示弹层并验证 ============
@@ -1000,7 +1355,7 @@
         const r = await api('/api/wizard/verify-token', { token: state.wizardToken });
         if (r.ok && r.data.success) {
           // token 有效，直接进入向导
-          if (state.currentStep !== 6) setStep(1);
+          if (state.currentStep !== 8) setStep(1);
           return;
         }
       }
