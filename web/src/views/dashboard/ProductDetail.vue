@@ -64,7 +64,10 @@ const durationOptions = [
 const currentRenewPrice = computed(() => {
   if (!renewForm.prices) return null;
   const p = renewForm.prices[String(renewForm.duration)];
-  return typeof p === 'number' ? p : null;
+  if (p == null) return null;
+  // 后端可能返回字符串（Prisma Decimal）或数字，统一转为 number
+  const num = Number(p);
+  return isNaN(num) ? null : num;
 });
 
 // 余额是否充足
