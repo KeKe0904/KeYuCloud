@@ -176,7 +176,11 @@ function logout() {
   display: flex;
   flex-direction: column;
   max-width: 100vw;
-  overflow-x: hidden;
+  // 注：使用 overflow-x: clip 而非 hidden
+  // overflow-x: hidden 会将 overflow-y 隐式计算为 auto，建立滚动容器，
+  // 从而破坏子元素（如商品详情页右侧购买面板）的 position: sticky 相对视口的定位。
+  // overflow-x: clip 只裁剪横向溢出，不建立滚动容器，不破坏 sticky。
+  overflow-x: clip;
 }
 
 // ============ 顶栏（苹果玻璃质感）============
@@ -465,7 +469,8 @@ function logout() {
   flex: 1;
   min-width: 0;
   width: 100%;
-  overflow-x: hidden;
+  // 同 .portal-layout：用 clip 代替 hidden，避免破坏子元素 sticky
+  overflow-x: clip;
 }
 
 // ============ Footer（玻璃质感）============
