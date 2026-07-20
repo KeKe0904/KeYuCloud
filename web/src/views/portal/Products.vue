@@ -131,7 +131,7 @@ function getDiscountLabel(product: Product): string | null {
 
 // 价格格式化
 function formatPrice(price: number | null): string {
-  if (price === null) return '咨询客服';
+  if (price === null || price <= 0) return '待定价';
   return `¥${price.toFixed(2)}`;
 }
 

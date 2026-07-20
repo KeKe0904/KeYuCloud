@@ -38,9 +38,17 @@ const features = [
 ];
 
 // 解析商品 prices JSON，返回最低价
+// 兼容两种数据格式：
+//   - 字符串：'{"1":"97.20","3":"262.44"}'（旧接口或缓存的 JSON 字符串）
+//   - 对象：{ "1": "97.20", "3": "262.44" }（axios 自动反序列化后的对象）
 function getStartingPrice(product: Product): number | null {
   try {
-    const prices = JSON.parse(product.prices || '{}');
+    let prices: any = product.prices;
+    if (!prices) return null;
+    if (typeof prices === 'string') {
+      prices = JSON.parse(prices || '{}');
+    }
+    if (typeof prices !== 'object' || prices === null) return null;
     const values = Object.values(prices).map((v) => Number(v)).filter((v) => !isNaN(v) && v > 0);
     if (!values.length) return null;
     return Math.min(...values);
@@ -49,9 +57,9 @@ function getStartingPrice(product: Product): number | null {
   }
 }
 
-// 价格展示
+// 价格展示：直接显示实际价格，不再回退到"咨询客服"
 function formatPrice(price: number | null): string {
-  if (price === null) return '咨询客服';
+  if (price === null || price <= 0) return '待定价';
   return `¥${price.toFixed(2)}`;
 }
 

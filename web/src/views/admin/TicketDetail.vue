@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { adminApi } from '@/api/admin';
@@ -64,6 +64,96 @@ const ticket = ref<TicketDetail | null>(null);
 const admins = ref<Admin[]>([]);
 const replyContent = ref('');
 const assignAdminId = ref<number | undefined>();
+
+// ============ 实时刷新 ============
+// 已读消息的最大 id，用于检测新消息
+const lastReadMsgId = ref<number>(0);
+// 新消息 id 集合（用于高亮标注）
+const newMessageIds = ref<Set<number>>(new Set());
+// 轮询定时器
+let pollTimer: number | null = null;
+// 轮询间隔（ms）：8 秒一次，平衡实时性与服务器压力
+const POLL_INTERVAL = 8000;
+// 自动滚动到底部的开关
+const autoScroll = ref(true);
+// 聊天列表 DOM 引用
+const chatListRef = ref<HTMLElement | null>(null);
+
+function isPolling() {
+  return pollTimer !== null;
+}
+
+function startPolling() {
+  if (pollTimer !== null) return;
+  pollTimer = window.setInterval(async () => {
+    // 工单已关闭不轮询
+    if (isClosed.value) {
+      stopPolling();
+      return;
+    }
+    await silentRefresh();
+  }, POLL_INTERVAL);
+}
+
+function stopPolling() {
+  if (pollTimer !== null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+// 静默刷新：不显示 loading，检测新消息并标注
+async function silentRefresh() {
+  if (!ticketId.value) return;
+  try {
+    const res: any = await adminApi.ticketDetail(ticketId.value);
+    if (res?.success && res.data) {
+      const prevMsgs = ticket.value?.messages || [];
+      const prevMaxId = prevMsgs.length ? Math.max(...prevMsgs.map(m => m.id)) : 0;
+      const newMsgs = (res.data.messages || []).filter((m: TicketMessage) => m.id > prevMaxId);
+
+      ticket.value = res.data;
+      assignAdminId.value = res.data.assigneeId;
+
+      // 如果有新消息
+      if (newMsgs.length > 0) {
+        // 标注新消息
+        for (const m of newMsgs) {
+          newMessageIds.value.add(m.id);
+        }
+        // 更新已读消息的最大 id
+        lastReadMsgId.value = Math.max(...(res.data.messages || []).map((m: TicketMessage) => m.id));
+
+        // 自动滚动到底部
+        if (autoScroll.value) {
+          await nextTick();
+          scrollToBottom();
+        }
+      }
+    }
+  } catch (e) {
+    // 静默失败
+  }
+}
+
+function scrollToBottom() {
+  if (chatListRef.value) {
+    chatListRef.value.scrollTop = chatListRef.value.scrollHeight;
+  }
+}
+
+function isNewMessage(msgId: number): boolean {
+  return newMessageIds.value.has(msgId);
+}
+
+// 用户主动滚动时，判断是否取消自动滚动
+function handleChatScroll() {
+  if (!chatListRef.value) return;
+  const el = chatListRef.value;
+  // 距离底部 50px 以内视为"在底部"
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+  autoScroll.value = atBottom;
+}
 
 // 状态/类型/优先级映射
 const statusMap: Record<string, { label: string; type: string }> = {
@@ -146,6 +236,14 @@ async function loadDetail() {
     if (res?.success) {
       ticket.value = res.data;
       assignAdminId.value = res.data.assigneeId;
+      // 初始化已读消息的最大 id
+      const msgs = res.data?.messages || [];
+      if (msgs.length) {
+        lastReadMsgId.value = Math.max(...msgs.map((m: TicketMessage) => m.id));
+      }
+      // 首次加载滚动到底部
+      await nextTick();
+      scrollToBottom();
     }
   } catch (e) {
     // 错误已由拦截器提示
@@ -174,7 +272,11 @@ async function handleReply() {
     if (res?.success) {
       ElMessage.success('回复成功');
       replyContent.value = '';
-      await loadDetail();
+      // 立即刷新对话（不用等轮询）
+      await silentRefresh();
+      // 强制滚动到底部
+      await nextTick();
+      scrollToBottom();
     }
   } catch (e) {
     // 忽略
@@ -253,6 +355,13 @@ async function handleEscalate() {
 onMounted(() => {
   loadDetail();
   loadAdmins();
+  // 启动轮询（仅当工单未关闭时）
+  startPolling();
+});
+
+onBeforeUnmount(() => {
+  // 离开页面时停止轮询，避免内存泄漏
+  stopPolling();
 });
 </script>
 
@@ -310,7 +419,7 @@ onMounted(() => {
             <span class="card-extra">{{ ticket.messages?.length || 0 }} 条</span>
           </div>
           <div class="card-body chat-body">
-            <div class="chat-list">
+            <div class="chat-list" ref="chatListRef" @scroll="handleChatScroll">
               <div
                 v-for="msg in ticket.messages"
                 :key="msg.id"
@@ -320,6 +429,7 @@ onMounted(() => {
                   'is-admin': isAdminMsg(msg),
                   'is-system': isSystemMsg(msg),
                   'is-rainyun': isRainyunSupport(msg),
+                  'is-new': isNewMessage(msg.id),
                 }"
               >
                 <div class="chat-avatar">
@@ -338,12 +448,23 @@ onMounted(() => {
                     <span v-if="isRainyunSupport(msg)" class="sender-tag tag-rainyun">雨云官方</span>
                     <span v-else-if="isAdminMsg(msg)" class="sender-tag tag-admin">客服</span>
                     <span v-else-if="isUserMsg(msg)" class="sender-tag tag-user">用户</span>
+                    <span v-if="isNewMessage(msg.id)" class="sender-tag tag-new">新</span>
                     <span class="chat-time">{{ formatShortTime(msg.createdAt) }}</span>
                   </div>
                   <div class="chat-bubble">{{ msg.content }}</div>
                 </div>
               </div>
               <el-empty v-if="!ticket.messages?.length" description="暂无对话" />
+            </div>
+
+            <!-- 实时状态提示 -->
+            <div class="realtime-status">
+              <span class="status-dot" :class="{ active: isPolling() }"></span>
+              <span class="status-text" v-if="isPolling()">实时监听中（每 {{ POLL_INTERVAL / 1000 }}s 刷新）</span>
+              <span class="status-text" v-else>已停止刷新</span>
+              <span class="status-text" v-if="!autoScroll" style="margin-left: 12px; color: var(--warning);">
+                · 有新消息时需手动下滑
+              </span>
             </div>
 
             <!-- 回复区 -->
@@ -355,10 +476,12 @@ onMounted(() => {
                 placeholder="请输入回复内容..."
                 maxlength="2000"
                 show-word-limit
+                @keydown.ctrl.enter="handleReply"
               />
               <div class="reply-actions">
+                <span class="reply-hint">Ctrl + Enter 快速发送</span>
                 <el-button class="btn-gold" :loading="actionLoading" @click="handleReply">
-                  回复
+                  发送回复
                 </el-button>
               </div>
             </div>
@@ -576,8 +699,11 @@ onMounted(() => {
   display: flex;
   gap: 10px;
   max-width: 70%;
+  transition: background 0.4s ease;
+  position: relative;
 
-  &.is-user {
+  // 管理员端：客服（admin）在右侧，用户（user）在左侧
+  &.is-admin {
     flex-direction: row-reverse;
     align-self: flex-end;
 
@@ -597,8 +723,34 @@ onMounted(() => {
     }
   }
 
-  &.is-admin,
-  &:not(.is-user):not(.is-system):not(.is-rainyun) {
+  &.is-user {
+    align-self: flex-start;
+
+    .chat-bubble {
+      background: var(--bg-subtle);
+      color: var(--text-primary);
+      border: 1px solid var(--border-base);
+      border-radius: 2px 8px 8px 8px;
+    }
+  }
+
+  &.is-rainyun {
+    align-self: flex-start;
+
+    .chat-avatar {
+      background: linear-gradient(135deg, #6a5acd, #483d8b);
+      color: #fff;
+    }
+    .chat-bubble {
+      background: rgba(106, 90, 205, 0.06);
+      color: var(--text-primary);
+      border: 1px solid rgba(106, 90, 205, 0.3);
+      border-radius: 2px 8px 8px 8px;
+    }
+  }
+
+  // 兜底：未识别类型在左侧
+  &:not(.is-user):not(.is-admin):not(.is-system):not(.is-rainyun) {
     align-self: flex-start;
 
     .chat-bubble {
@@ -626,20 +778,19 @@ onMounted(() => {
     }
   }
 
-  &.is-rainyun {
-    align-self: flex-start;
+  // 新消息高亮（闪烁动画）
+  &.is-new {
+    animation: newMsgFlash 1.5s ease-out;
 
-    .chat-avatar {
-      background: linear-gradient(135deg, #6a5acd, #483d8b);
-      color: #fff;
-    }
     .chat-bubble {
-      background: rgba(106, 90, 205, 0.06);
-      color: var(--text-primary);
-      border: 1px solid rgba(106, 90, 205, 0.3);
-      border-radius: 2px 8px 8px 8px;
+      box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.5);
     }
   }
+}
+
+@keyframes newMsgFlash {
+  0% { background: rgba(212, 175, 55, 0.15); }
+  100% { background: transparent; }
 }
 
 .chat-avatar {
@@ -711,6 +862,50 @@ onMounted(() => {
     color: #6a5acd;
     border-color: rgba(106, 90, 205, 0.3);
   }
+  &.tag-new {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    border-color: rgba(16, 185, 129, 0.4);
+    animation: tagPulse 1.5s ease-out;
+  }
+}
+
+@keyframes tagPulse {
+  0% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+// ============ 实时状态提示 ============
+.realtime-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-tertiary);
+
+    &.active {
+      background: #10b981;
+      box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+      animation: dotBlink 2s ease-in-out infinite;
+    }
+  }
+
+  .status-text {
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.3px;
+  }
+}
+
+@keyframes dotBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .chat-bubble {
@@ -729,7 +924,15 @@ onMounted(() => {
   .reply-actions {
     margin-top: 12px;
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .reply-hint {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-family: 'JetBrains Mono', monospace;
   }
 }
 

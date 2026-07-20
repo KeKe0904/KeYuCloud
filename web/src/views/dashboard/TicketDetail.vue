@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, nextTick } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { ticketApi } from '@/api/ticket';
@@ -70,6 +70,51 @@ const canEscalate = computed(
 // 对话区引用
 const conversationRef = ref<HTMLElement | null>(null);
 
+// ============ 实时刷新 ============
+// 新消息 id 集合（用于高亮标注）
+const newMessageIds = ref<Set<number>>(new Set());
+// 轮询定时器
+let pollTimer: number | null = null;
+// 轮询间隔（ms）：8 秒一次，平衡实时性与服务器压力
+const POLL_INTERVAL = 8000;
+// 自动滚动到底部的开关
+const autoScroll = ref(true);
+
+function isPolling() {
+  return pollTimer !== null;
+}
+
+function startPolling() {
+  if (pollTimer !== null) return;
+  pollTimer = window.setInterval(async () => {
+    // 工单已关闭不轮询
+    if (isClosed.value) {
+      stopPolling();
+      return;
+    }
+    await silentRefresh();
+  }, POLL_INTERVAL);
+}
+
+function stopPolling() {
+  if (pollTimer !== null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function isNewMessage(msgId: number): boolean {
+  return newMessageIds.value.has(msgId);
+}
+
+// 用户主动滚动时，判断是否取消自动滚动
+function handleChatScroll() {
+  if (!conversationRef.value) return;
+  const el = conversationRef.value;
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+  autoScroll.value = atBottom;
+}
+
 // 格式化时间
 function formatTime(val: string) {
   if (!val) return '-';
@@ -94,6 +139,34 @@ async function loadDetail() {
     // 错误已由拦截器统一提示
   } finally {
     loading.value = false;
+  }
+}
+
+// 静默刷新（轮询调用，不显示 loading）
+async function silentRefresh() {
+  if (!ticketId.value) return;
+  try {
+    const res = await ticketApi.detail(ticketId.value);
+    if (res?.success !== false && res?.data) {
+      const prevMsgs = messages.value || [];
+      const prevMaxId = prevMsgs.length ? Math.max(...prevMsgs.map((m: any) => m.id || 0)) : 0;
+      const newMsgs = (res.data.messages || res.data.replies || []).filter((m: any) => (m.id || 0) > prevMaxId);
+
+      ticket.value = res.data;
+      messages.value = res.data?.messages || res.data?.replies || [];
+
+      if (newMsgs.length > 0) {
+        for (const m of newMsgs) {
+          if (m.id) newMessageIds.value.add(m.id);
+        }
+        if (autoScroll.value) {
+          await nextTick();
+          scrollToBottom();
+        }
+      }
+    }
+  } catch (e) {
+    // 静默失败
   }
 }
 
@@ -154,7 +227,10 @@ async function onReply() {
     await ticketApi.reply(ticketId.value, replyContent.value);
     ElMessage.success('回复成功');
     replyContent.value = '';
-    await loadDetail();
+    // 立即刷新对话（不用等轮询）
+    await silentRefresh();
+    await nextTick();
+    scrollToBottom();
   } catch (e) {
     // 错误已由拦截器统一提示
   } finally {
@@ -227,6 +303,13 @@ function goBack() {
 
 onMounted(() => {
   loadDetail();
+  // 启动轮询（仅当工单未关闭时）
+  startPolling();
+});
+
+onBeforeUnmount(() => {
+  // 离开页面时停止轮询，避免内存泄漏
+  stopPolling();
 });
 </script>
 
@@ -287,16 +370,17 @@ onMounted(() => {
         <div class="card-header">
           <h2 class="card-title">对话记录</h2>
         </div>
-        <div class="conversation-body" ref="conversationRef">
+        <div class="conversation-body" ref="conversationRef" @scroll="handleChatScroll">
           <el-empty v-if="!messages.length" description="暂无对话消息" :image-size="80" />
           <div
             v-for="(msg, idx) in messages"
-            :key="idx"
+            :key="msg.id || idx"
             class="msg-row"
             :class="{
               'is-user': isUserMessage(msg),
               'is-system': isSystemMessage(msg),
               'is-rainyun': isRainyunSupport(msg),
+              'is-new': msg.id && isNewMessage(msg.id),
             }"
           >
             <div class="msg-avatar">
@@ -306,13 +390,24 @@ onMounted(() => {
             <div class="msg-content">
               <div class="msg-meta">
                 <span class="msg-sender">{{ getSenderName(msg) }}</span>
-                <span v-if="isRainyunSupport(msg)" class="sender-tag">雨云官方</span>
-                <span v-else-if="msg.senderRole === 'admin' || msg.fromType === 'admin'" class="sender-tag">客服</span>
+                <span v-if="isRainyunSupport(msg)" class="sender-tag tag-rainyun">雨云官方</span>
+                <span v-else-if="msg.senderRole === 'admin' || msg.fromType === 'admin'" class="sender-tag tag-admin">客服</span>
+                <span v-if="msg.id && isNewMessage(msg.id)" class="sender-tag tag-new">新</span>
                 <span class="msg-time font-mono">{{ formatTime(msg.createdAt || msg.time) }}</span>
               </div>
               <div class="msg-bubble">{{ msg.content || msg.message || msg.text }}</div>
             </div>
           </div>
+        </div>
+
+        <!-- 实时状态提示 -->
+        <div class="realtime-status">
+          <span class="status-dot" :class="{ active: isPolling() }"></span>
+          <span class="status-text" v-if="isPolling()">实时监听中（每 {{ POLL_INTERVAL / 1000 }}s 刷新）</span>
+          <span class="status-text" v-else>已停止刷新</span>
+          <span class="status-text" v-if="!autoScroll" style="margin-left: 12px; color: var(--warning);">
+            · 有新消息时需手动下滑
+          </span>
         </div>
 
         <!-- 回复区 -->
@@ -321,34 +416,38 @@ onMounted(() => {
             v-model="replyContent"
             type="textarea"
             :rows="3"
-            placeholder="请输入回复内容..."
+            placeholder="请输入回复内容... (Ctrl + Enter 快速发送)"
             resize="none"
             maxlength="2000"
             show-word-limit
+            @keydown.ctrl.enter="onReply"
           />
           <div class="reply-actions">
-            <el-button
-              v-if="canEscalate"
-              class="btn-outline"
-              @click="onEscalate"
-            >
-              升级到雨云官方工单
-            </el-button>
-            <el-button
-              v-if="isEscalated"
-              class="btn-outline"
-              disabled
-              title="官方工单不可降级为本站工单"
-            >
-              已是官方工单
-            </el-button>
-            <el-button @click="onClose">
-              关闭工单
-            </el-button>
-            <el-button class="btn-gold" :loading="replyLoading" @click="onReply">
-              <el-icon><Promotion /></el-icon>
-              回复
-            </el-button>
+            <span class="reply-hint">Ctrl + Enter 快速发送</span>
+            <div class="reply-btns">
+              <el-button
+                v-if="canEscalate"
+                class="btn-outline"
+                @click="onEscalate"
+              >
+                升级到雨云官方工单
+              </el-button>
+              <el-button
+                v-if="isEscalated"
+                class="btn-outline"
+                disabled
+                title="官方工单不可降级为本站工单"
+              >
+                已是官方工单
+              </el-button>
+              <el-button @click="onClose">
+                关闭工单
+              </el-button>
+              <el-button class="btn-gold" :loading="replyLoading" @click="onReply">
+                <el-icon><Promotion /></el-icon>
+                发送回复
+              </el-button>
+            </div>
           </div>
         </div>
       </section>
@@ -638,6 +737,48 @@ onMounted(() => {
   background: rgba(212, 175, 55, 0.12);
   color: var(--text-gold);
   border: 1px solid rgba(212, 175, 55, 0.3);
+
+  // 客服标签：金色
+  &.tag-admin {
+    background: rgba(212, 175, 55, 0.15);
+    color: var(--text-gold);
+    border-color: rgba(212, 175, 55, 0.4);
+  }
+
+  // 雨云官方标签：紫色
+  &.tag-rainyun {
+    background: rgba(106, 90, 205, 0.15);
+    color: #6a5acd;
+    border-color: rgba(106, 90, 205, 0.4);
+  }
+
+  // 新消息标签：绿色 + 脉冲动画
+  &.tag-new {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    border-color: rgba(16, 185, 129, 0.4);
+    animation: tagPulse 1.5s ease-out;
+  }
+}
+
+// 新消息高亮动画
+@keyframes tagPulse {
+  0% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+// 新消息整行高亮（背景渐隐 + 边框发光）
+.msg-row.is-new {
+  animation: newMsgFlash 1.5s ease-out;
+
+  .msg-bubble {
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.45);
+  }
+}
+
+@keyframes newMsgFlash {
+  0% { background: rgba(16, 185, 129, 0.15); }
+  100% { background: transparent; }
 }
 
 .msg-content {
@@ -676,6 +817,42 @@ onMounted(() => {
   white-space: pre-wrap;
 }
 
+// ============ 实时状态指示器 ============
+.realtime-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  border-top: 1px dashed var(--border-base);
+  background: var(--bg-subtle);
+  font-family: 'JetBrains Mono', monospace;
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-tertiary);
+    flex-shrink: 0;
+
+    &.active {
+      background: #10b981;
+      box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+      animation: dotBlink 2s ease-in-out infinite;
+    }
+  }
+
+  .status-text {
+    letter-spacing: 0.3px;
+  }
+}
+
+@keyframes dotBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 // ============ 回复区 ============
 .reply-area {
   border-top: 1px solid var(--border-base);
@@ -687,9 +864,24 @@ onMounted(() => {
 
 .reply-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.reply-btns {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.reply-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.3px;
 }
 
 // ============ 评分卡 ============
@@ -829,12 +1021,20 @@ onMounted(() => {
     padding: 12px;
   }
   .reply-actions {
-    justify-content: stretch;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .reply-btns {
+    flex-wrap: wrap;
     .el-button {
       flex: 1;
       min-width: 0;
       margin-left: 0 !important;
     }
+  }
+  .reply-hint {
+    text-align: center;
   }
 
   // 评分表单堆叠
