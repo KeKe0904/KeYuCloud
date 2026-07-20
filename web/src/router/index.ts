@@ -66,6 +66,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'coupons', name: 'AdminCoupons', component: () => import('@/views/admin/Coupons.vue') },
       { path: 'announcements', name: 'AdminAnnouncements', component: () => import('@/views/admin/Announcements.vue') },
       { path: 'system', name: 'AdminSystem', component: () => import('@/views/admin/System.vue') },
+      { path: 'environment', name: 'AdminEnvironment', component: () => import('@/views/admin/Environment.vue') },
       { path: 'admins', name: 'AdminAdmins', component: () => import('@/views/admin/Admins.vue') },
       { path: 'profile', name: 'AdminProfile', component: () => import('@/views/admin/Profile.vue') },
       { path: 'audit-logs', name: 'AdminAuditLogs', component: () => import('@/views/admin/AuditLogs.vue') },

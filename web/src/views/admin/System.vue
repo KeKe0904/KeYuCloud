@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, onBeforeUnmount, computed } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { adminApi } from '@/api/admin';
 
@@ -21,36 +21,6 @@ interface ConfigSection {
   title: string;
   icon: string;
   items: ConfigItem[];
-}
-
-// 环境信息（后端 GET /admin/system/env-info 返回结构）
-interface EnvInfo {
-  versions: {
-    node: string;
-    npm: string;
-    pm2: string | null;
-    mysql: string | null;
-    redis: string | null;
-    nginx: string | null;
-    git: string;
-  };
-  pm2Processes: Array<{
-    name: string;
-    pid: number;
-    status: string;
-    uptime: number;
-    restarts: number;
-    memory: number;
-    cpu: number;
-    version: string;
-  }>;
-  diskUsage: { size: string; used: string; avail: string; usePercent: string } | null;
-  memory: { total: string; used: string; free: string; usePercent: string };
-  cpu: { cores: number; model: string; speed: string; loadavg: number[] };
-  gitInfo: { branch: string; commit: string; dirtyFiles: number } | null;
-  dependencies: string;
-  app: { version: string; uptime: string; pid: number; nodeEnv: string };
-  collectedAt: string;
 }
 
 // 版本检查（后端 GET /admin/system/version-check 返回结构）
@@ -140,7 +110,7 @@ const sections = ref<ConfigSection[]>([
       { key: 'auto_sync_upstream', value: false, label: '自动同步上游', type: 'boolean', tip: '每天定时同步上游商品库存与价格' },
       {
         key: 'auto_sync_hour',
-        value: 3,
+        value: '3',
         label: '自动同步时间',
         type: 'select',
         tip: '每天定时同步的具体时间点（24 小时制，仅当「自动同步上游」开启时生效）',
@@ -289,65 +259,6 @@ async function handleReset() {
   ElMessage.success('已重置为默认值，请点击「保存」以生效');
 }
 
-// ============ 环境依赖检查 ============
-const envLoading = ref(false);
-const envInfo = ref<EnvInfo | null>(null);
-
-async function loadEnvInfo() {
-  envLoading.value = true;
-  try {
-    const res: any = await adminApi.envInfo();
-    if (res?.success) {
-      envInfo.value = res.data;
-    }
-  } catch (e: any) {
-    ElMessage.error('获取环境信息失败：' + (e?.message || '未知错误'));
-  } finally {
-    envLoading.value = false;
-  }
-}
-
-// 格式化字节数为可读文本
-function formatBytes(bytes: number): string {
-  if (!bytes && bytes !== 0) return '-';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let i = 0;
-  let n = bytes;
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024;
-    i++;
-  }
-  return `${n.toFixed(1)} ${units[i]}`;
-}
-
-// 格式化 PM2 进程运行时间
-function formatPm2Uptime(uptime: number): string {
-  if (!uptime) return '-';
-  const now = Date.now();
-  const diff = now - uptime;
-  const days = Math.floor(diff / 86400000);
-  const hours = Math.floor((diff % 86400000) / 3600000);
-  const mins = Math.floor((diff % 3600000) / 60000);
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins}m`;
-}
-
-// 依赖版本卡片列表（用于模板渲染）
-const versionCards = computed(() => {
-  if (!envInfo.value) return [];
-  const v = envInfo.value.versions;
-  return [
-    { key: 'node', label: 'Node.js', value: v.node, ok: !!v.node, icon: 'Platform' },
-    { key: 'npm', label: 'npm', value: v.npm, ok: !!v.npm, icon: 'Files' },
-    { key: 'pm2', label: 'PM2', value: v.pm2 || '未安装', ok: !!v.pm2, icon: 'Cpu' },
-    { key: 'mysql', label: 'MySQL', value: v.mysql || '未安装', ok: !!v.mysql, icon: 'Coin' },
-    { key: 'redis', label: 'Redis', value: v.redis || '未安装', ok: !!v.redis, icon: 'Histogram' },
-    { key: 'nginx', label: 'Nginx', value: v.nginx || '未安装', ok: !!v.nginx, icon: 'Connection' },
-    { key: 'git', label: 'Git', value: v.git, ok: !!v.git, icon: 'Link' },
-  ];
-});
-
 // ============ 版本检查 ============
 const versionLoading = ref(false);
 const versionInfo = ref<VersionInfo | null>(null);
@@ -468,7 +379,6 @@ const statusLabel = computed(() => {
 
 onMounted(() => {
   loadConfigs();
-  loadEnvInfo();
   loadVersionCheck();
   loadUpdateStatus();
 });
@@ -485,173 +395,13 @@ onBeforeUnmount(() => {
       <div class="header-left">
         <span class="eyebrow">SYSTEM CONFIG</span>
         <h2 class="page-title font-display">系统配置</h2>
+        <p class="page-subtitle">站点参数、注册、支付、商品、主题与安全策略管理</p>
       </div>
       <div class="header-actions">
         <el-button class="btn-outline" @click="handleReset">
           <el-icon style="margin-right: 6px;"><RefreshLeft /></el-icon>
           重置为默认
         </el-button>
-      </div>
-    </div>
-
-    <!-- ============ 环境依赖检查 ============ -->
-    <div class="card env-card" v-loading="envLoading">
-      <div class="card-head">
-        <span class="card-title">
-          <el-icon class="section-icon"><Monitor /></el-icon>
-          环境依赖检查
-        </span>
-        <span class="card-extra">ENV</span>
-      </div>
-      <div class="card-body">
-        <!-- 依赖版本网格 -->
-        <div class="version-grid" v-if="envInfo">
-          <div
-            v-for="item in versionCards"
-            :key="item.key"
-            class="version-item"
-            :class="{ 'is-missing': !item.ok }"
-          >
-            <div class="version-icon">
-              <el-icon><component :is="item.icon" /></el-icon>
-            </div>
-            <div class="version-meta">
-              <div class="version-label">{{ item.label }}</div>
-              <div class="version-value" :title="item.value">{{ item.value }}</div>
-            </div>
-            <el-tag
-              :type="item.ok ? 'success' : 'danger'"
-              size="small"
-              effect="plain"
-              class="version-tag"
-            >
-              {{ item.ok ? '已安装' : '缺失' }}
-            </el-tag>
-          </div>
-        </div>
-
-        <!-- 系统资源 -->
-        <div class="resource-grid" v-if="envInfo">
-          <!-- 内存 -->
-          <div class="resource-item">
-            <div class="resource-head">
-              <el-icon><DataLine /></el-icon>
-              <span>内存使用</span>
-            </div>
-            <div class="resource-value">
-              {{ envInfo.memory.used }} / {{ envInfo.memory.total }}
-            </div>
-            <el-progress
-              :percentage="parseFloat(envInfo.memory.usePercent)"
-              :stroke-width="6"
-              :color="parseFloat(envInfo.memory.usePercent) > 85 ? '#dc2626' : '#d4798e'"
-              :show-text="false"
-              class="resource-progress"
-            />
-            <div class="resource-tip">{{ envInfo.memory.usePercent }} 已使用</div>
-          </div>
-
-          <!-- 磁盘 -->
-          <div class="resource-item" v-if="envInfo.diskUsage">
-            <div class="resource-head">
-              <el-icon><Files /></el-icon>
-              <span>根分区磁盘</span>
-            </div>
-            <div class="resource-value">
-              {{ envInfo.diskUsage.used }} / {{ envInfo.diskUsage.size }}
-            </div>
-            <el-progress
-              :percentage="parseInt(envInfo.diskUsage.usePercent)"
-              :stroke-width="6"
-              :color="parseInt(envInfo.diskUsage.usePercent) > 85 ? '#dc2626' : '#d4798e'"
-              :show-text="false"
-              class="resource-progress"
-            />
-            <div class="resource-tip">{{ envInfo.diskUsage.usePercent }} 已使用（剩 {{ envInfo.diskUsage.avail }}）</div>
-          </div>
-
-          <!-- CPU -->
-          <div class="resource-item">
-            <div class="resource-head">
-              <el-icon><Cpu /></el-icon>
-              <span>CPU 负载</span>
-            </div>
-            <div class="resource-value">{{ envInfo.cpu.cores }} 核 / {{ envInfo.cpu.model }}</div>
-            <div class="resource-tip">1m / 5m / 15m 负载：{{ envInfo.cpu.loadavg.join(' / ') }}</div>
-          </div>
-        </div>
-
-        <!-- Git 信息 + 应用信息 -->
-        <div class="meta-row" v-if="envInfo">
-          <div class="meta-block" v-if="envInfo.gitInfo">
-            <div class="meta-label">
-              <el-icon><Link /></el-icon>
-              Git 信息
-            </div>
-            <div class="meta-content">
-              <span class="meta-item">分支：<code>{{ envInfo.gitInfo.branch }}</code></span>
-              <span class="meta-item">提交：<code>{{ envInfo.gitInfo.commit }}</code></span>
-              <span class="meta-item" :class="{ 'meta-warn': envInfo.gitInfo.dirtyFiles > 0 }">
-                未提交改动：<code>{{ envInfo.gitInfo.dirtyFiles }}</code>
-              </span>
-            </div>
-          </div>
-          <div class="meta-block">
-            <div class="meta-label">
-              <el-icon><Platform /></el-icon>
-              应用运行
-            </div>
-            <div class="meta-content">
-              <span class="meta-item">版本：<code>v{{ envInfo.app.version }}</code></span>
-              <span class="meta-item">运行时长：<code>{{ envInfo.app.uptime }}</code></span>
-              <span class="meta-item">PID：<code>{{ envInfo.app.pid }}</code></span>
-              <span class="meta-item">NODE_ENV：<code>{{ envInfo.app.nodeEnv }}</code></span>
-            </div>
-          </div>
-        </div>
-
-        <!-- PM2 进程列表 -->
-        <div class="pm2-section" v-if="envInfo && envInfo.pm2Processes.length > 0">
-          <div class="meta-label">
-            <el-icon><Cpu /></el-icon>
-            PM2 进程（{{ envInfo.pm2Processes.length }}）
-          </div>
-          <el-table :data="envInfo.pm2Processes" size="small" class="pm2-table">
-            <el-table-column prop="name" label="名称" min-width="120" />
-            <el-table-column prop="pid" label="PID" width="80" />
-            <el-table-column label="状态" width="100">
-              <template #default="{ row }">
-                <el-tag
-                  :type="row.status === 'online' ? 'success' : 'danger'"
-                  size="small"
-                  effect="plain"
-                >
-                  {{ row.status }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="运行时长" width="100">
-              <template #default="{ row }">{{ formatPm2Uptime(row.uptime) }}</template>
-            </el-table-column>
-            <el-table-column label="内存" width="100">
-              <template #default="{ row }">{{ formatBytes(row.memory) }}</template>
-            </el-table-column>
-            <el-table-column label="CPU" width="80">
-              <template #default="{ row }">{{ row.cpu?.toFixed(1) }}%</template>
-            </el-table-column>
-            <el-table-column prop="restarts" label="重启次数" width="90" />
-          </el-table>
-        </div>
-
-        <div class="env-actions">
-          <span class="env-collected" v-if="envInfo">
-            采集时间：{{ new Date(envInfo.collectedAt).toLocaleString('zh-CN') }}
-          </span>
-          <el-button class="btn-outline" :loading="envLoading" @click="loadEnvInfo">
-            <el-icon style="margin-right: 6px;"><Refresh /></el-icon>
-            刷新
-          </el-button>
-        </div>
       </div>
     </div>
 
@@ -761,6 +511,8 @@ onBeforeUnmount(() => {
             包含 9 个步骤：前置检查 → 备份 → 拉取代码 → 安装依赖 → 数据库迁移 → 构建 → 重启 → 健康检查 → 清理。
             <br />
             <span class="update-warn">⚠️ 更新过程中后端会重启，可能导致 10-30 秒短暂不可用。</span>
+            <br />
+            <span class="update-tip">提示：环境依赖、PM2 进程状态请在「环境依赖」页面查看。</span>
           </div>
           <el-button
             class="btn-gold"
@@ -942,7 +694,7 @@ onBeforeUnmount(() => {
   .header-left {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
   }
 
   .page-title {
@@ -952,6 +704,12 @@ onBeforeUnmount(() => {
     color: var(--text-primary);
     line-height: 1.2;
     letter-spacing: -0.3px;
+  }
+
+  .page-subtitle {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-tertiary);
   }
 
   .header-actions {
@@ -1028,207 +786,6 @@ onBeforeUnmount(() => {
   color: var(--text-tertiary);
   margin-top: 4px;
   line-height: 1.4;
-}
-
-// ============ 环境依赖卡片 ============
-.env-card .card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.version-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-}
-
-.version-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-light);
-  border-radius: 4px;
-  transition: border-color 0.2s;
-
-  &:hover {
-    border-color: var(--border-gold);
-  }
-
-  &.is-missing {
-    border-color: var(--danger);
-    background: var(--danger-bg);
-  }
-
-  .version-icon {
-    flex-shrink: 0;
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-base);
-    border-radius: 4px;
-    color: var(--gold-400);
-    font-size: 16px;
-  }
-
-  .version-meta {
-    flex: 1;
-    min-width: 0;
-
-    .version-label {
-      font-size: 11px;
-      color: var(--text-tertiary);
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-      margin-bottom: 2px;
-    }
-
-    .version-value {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 13px;
-      color: var(--text-primary);
-      font-weight: 600;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-  }
-
-  .version-tag {
-    flex-shrink: 0;
-  }
-}
-
-// 资源使用
-.resource-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-
-.resource-item {
-  padding: 14px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-light);
-  border-radius: 4px;
-
-  .resource-head {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--text-tertiary);
-    letter-spacing: 0.3px;
-    margin-bottom: 8px;
-
-    .el-icon { color: var(--gold-400); }
-  }
-
-  .resource-value {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 8px;
-  }
-
-  .resource-progress {
-    margin-bottom: 4px;
-  }
-
-  .resource-tip {
-    font-size: 11px;
-    color: var(--text-tertiary);
-  }
-}
-
-// 元信息行
-.meta-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 12px;
-}
-
-.meta-block {
-  padding: 12px 14px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-light);
-  border-radius: 4px;
-
-  .meta-label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--text-tertiary);
-    letter-spacing: 0.3px;
-    margin-bottom: 8px;
-
-    .el-icon { color: var(--gold-400); }
-  }
-
-  .meta-content {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 16px;
-    font-size: 12px;
-    color: var(--text-secondary);
-
-    .meta-item code {
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--text-primary);
-      background: var(--bg-elevated);
-      padding: 1px 6px;
-      border-radius: 2px;
-      font-size: 11px;
-    }
-
-    .meta-warn code {
-      color: var(--warning);
-      background: var(--warning-bg);
-    }
-  }
-}
-
-// PM2 进程
-.pm2-section {
-  .meta-label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--text-tertiary);
-    letter-spacing: 0.3px;
-    margin-bottom: 8px;
-
-    .el-icon { color: var(--gold-400); }
-  }
-}
-
-.pm2-table {
-  :deep(.el-table) {
-    background: transparent;
-  }
-}
-
-.env-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 4px;
-  border-top: 1px dashed var(--border-light);
-  margin-top: 4px;
-}
-
-.env-collected {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  font-family: 'JetBrains Mono', monospace;
 }
 
 // ============ 版本检查 & 更新卡片 ============
@@ -1384,6 +941,11 @@ onBeforeUnmount(() => {
     .update-warn {
       color: var(--warning);
     }
+
+    .update-tip {
+      color: var(--text-tertiary);
+      font-size: 12px;
+    }
   }
 
   .el-button {
@@ -1487,6 +1049,12 @@ onBeforeUnmount(() => {
   }
 }
 
+.env-collected {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: 'JetBrains Mono', monospace;
+}
+
 // ===== 响应式适配 =====
 @include mobile {
   .admin-system { gap: 12px; }
@@ -1506,10 +1074,6 @@ onBeforeUnmount(() => {
 
   .card-body {
     padding: 16px;
-  }
-
-  .version-grid {
-    grid-template-columns: 1fr;
   }
 
   .update-action {
