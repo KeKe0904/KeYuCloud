@@ -89,14 +89,32 @@ function getStartingPrice(product: Product): number | null {
   }
 }
 
-// 取官方原价（1月价格）
+// 取官方原价（1月价格 = 机器价 + 默认 IP 价）
+// 修复：原实现仅取机器价，导致很多商品的"官方原价"比本站售价还便宜
+//       （因为本站售价已含 IP，而原价只含机器）
+// 正确逻辑：
+//   - NAT 商品（无独立 IP）：官方原价 = 上游机器月价
+//   - 非 NAT 商品：官方原价 = 上游机器月价 + 上游默认 IPv4 月价（ip_prices[""]）
 function getOfficialMonthlyPrice(product: Product): number | null {
   try {
     const up: any = typeof product.upstreamPrices === 'string'
       ? JSON.parse(product.upstreamPrices || '{}')
       : (product.upstreamPrices || {});
-    const v = Number(up?.['1'] ?? 0);
-    return v > 0 ? v : null;
+    const machineMonthly = Number(up?.['1'] ?? 0);
+    if (!machineMonthly || isNaN(machineMonthly)) return null;
+
+    // NAT 共享 IP 商品：官方原价仅机器价
+    const isNat = (product as any).netMode === 'nat';
+    if (isNat) return machineMonthly;
+
+    // 非 NAT 商品：加上游默认 IPv4 月价（key 为 ""）
+    let ipUpstream: any = (product as any).upstreamIpPrices;
+    if (typeof ipUpstream === 'string') {
+      try { ipUpstream = JSON.parse(ipUpstream || '{}'); } catch { ipUpstream = {}; }
+    }
+    if (!ipUpstream || typeof ipUpstream !== 'object') ipUpstream = {};
+    const defaultIpPrice = Number(ipUpstream?.[''] ?? 0);
+    return machineMonthly + (isNaN(defaultIpPrice) ? 0 : defaultIpPrice);
   } catch {
     return null;
   }

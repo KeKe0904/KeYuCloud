@@ -2,6 +2,9 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { notificationApi } from '@/api/ticket';
+import { useNotificationStore } from '@/stores/notification';
+
+const notifStore = useNotificationStore();
 
 // 列表数据
 const loading = ref(false);
@@ -17,7 +20,7 @@ const query = reactive({
   pageSize: 10,
 });
 
-// 未读计数
+// 未读计数（当前页）
 const unreadCount = computed(() => list.value.filter((n) => !n.isRead).length);
 
 // 类型映射
@@ -101,6 +104,8 @@ async function onMarkRead(row: any) {
   try {
     await notificationApi.markRead(row.id);
     row.isRead = true;
+    // 同步刷新 store 中的未读数（红点立即消失）
+    notifStore.fetchUnreadCount();
   } catch (e) {
     // 错误已由拦截器统一提示
   }
@@ -112,6 +117,8 @@ async function onMarkAllRead() {
     await notificationApi.markAllRead();
     ElMessage.success('已全部标记为已读');
     await loadList();
+    // 同步刷新 store 中的未读数（红点立即消失）
+    notifStore.fetchUnreadCount();
   } catch (e) {
     // 错误已由拦截器统一提示
   }

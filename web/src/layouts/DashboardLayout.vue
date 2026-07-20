@@ -3,15 +3,17 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useThemeStore } from '@/stores/theme';
 import { useAuthStore } from '@/stores/auth';
-import { notificationApi } from '@/api/ticket';
+import { useNotificationStore } from '@/stores/notification';
 import { useResponsive } from '@/composables/useResponsive';
 
 const router = useRouter();
 const route = useRoute();
 const theme = useThemeStore();
 const auth = useAuthStore();
+const notifStore = useNotificationStore();
 
-const unreadCount = ref(0);
+// 未读数从 pinia store 读取（与 Notifications.vue 共享，标记已读后实时刷新）
+const unreadCount = computed(() => notifStore.unreadCount);
 const menuCollapse = ref(false);
 // 移动端抽屉
 const mobileSidebarOpen = ref(false);
@@ -74,10 +76,15 @@ const breadcrumbs = computed<{ label: string; path?: string }[]>(() => {
 onMounted(async () => {
   if (auth.isLoggedIn) {
     await auth.fetchProfile();
-    try {
-      const res = await notificationApi.unreadCount();
-      unreadCount.value = res.data?.count || 0;
-    } catch {}
+    // 从 store 拉取未读数（与 Notifications.vue 共享状态）
+    await notifStore.fetchUnreadCount();
+  }
+});
+
+// 路由变化时刷新未读数（从通知页返回时立即更新红点）
+watch(() => route.path, (newPath, oldPath) => {
+  if (auth.isLoggedIn && oldPath?.includes('/notifications') && !newPath.includes('/notifications')) {
+    notifStore.fetchUnreadCount();
   }
 });
 
@@ -522,18 +529,18 @@ function goNotifications() {
 }
 
 // 通知红点：樱花粉（二次元属性，克制点缀）
-// 定位到铃铛图标的右上角（图标 18px 居中于 32x32 按钮，约位于 7-25px 区域）
-// 用 top:4px right:4px 让红点压在铃铛图标的右上角，符合通知徽标的常规位置
+// 铃铛图标 18px 居中于 32x32 按钮，图标边界框约 (7,7)-(25,25)
+// 红点中心对齐图标右上角 (7,25)，故 top:2px right:2px（8px 红点中心在 6,26 附近）
 .notif-dot {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 8px;
-  height: 8px;
+  top: 2px;
+  right: 2px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--sakura);
   box-shadow: 0 0 0 2px var(--bg-elevated);
-  z-index: 1;
+  z-index: 2;
 }
 
 .user-info {

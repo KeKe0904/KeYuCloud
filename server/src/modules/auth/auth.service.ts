@@ -3,7 +3,6 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../common/prisma.service';
 import { RainyunService } from '../rainyun/rainyun.service';
 import * as bcrypt from 'bcryptjs';
-import * as crypto from 'crypto';
 import { RegisterDto, LoginDto, ChangePasswordDto, UpdateProfileDto } from './dto';
 import { NotificationService } from '../notification/notification.service';
 import { SmsService } from '../sms/sms.service';
@@ -63,9 +62,9 @@ export class AuthService {
     // 同步创建 panel_user
     // 注意：雨云 API 不允许 name 包含下划线等特殊字符，仅允许字母数字（3-16 字符）
     const panelName = `pu${user.id}`;
-    // 安全：面板密码独立生成（与平台登录密码解耦），避免平台密码泄露时连带面板密码泄露
-    // 注：面板密码仅用于雨云白标面板登录，用户首次登录后可在面板内自行修改
-    const panelPassword = crypto.randomBytes(8).toString('base64url').slice(0, 12);
+    // 面板密码与注册密码保持一致（与 changePassword 行为对齐）
+    // 用户在平台修改密码时也会同步到面板，因此注册阶段也用同一密码
+    const panelPassword = dto.password;
     try {
       await this.rainyun.createPanelUser(panelName, panelPassword, `user_${user.id}`);
       await this.prisma.user.update({
@@ -76,11 +75,11 @@ export class AuthService {
           panelUserSyncedAt: new Date(),
         },
       });
-      // 通过站内通知下发独立面板密码（不通过短信/邮件明文传输）
+      // 通过站内通知告知用户面板账号信息
       await this.notification.send(user.id, {
         type: 'system',
         title: '云服务器面板账号已创建',
-        content: `您的白标面板账号已创建：\n面板用户名：${panelName}\n面板初始密码：${panelPassword}\n\n请妥善保管，建议尽快登录面板修改密码。如遗失可通过工单申请重置。`,
+        content: `您的云服务器面板账号已创建：\n面板用户名：${panelName}\n面板密码：与您注册时设置的登录密码一致\n\n您可使用面板用户名和登录密码登录雨云官方面板管理服务器。如需修改密码，请在平台「账号设置」中修改，修改后会自动同步到面板。`,
         link: '/user-products',
       }).catch(() => {/* 通知失败不影响注册 */});
       this.logger.log(`用户 ${user.id} panel_user 创建成功: ${panelName}`);
