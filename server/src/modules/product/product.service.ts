@@ -656,6 +656,8 @@ export class ProductService {
         memory: this.normalizeMemory(plan.memory),
         disk: plan.disk,
         bandwidth: plan.bandwidth,
+        // 上行带宽（雨云 net_in 字段）
+        netIn: plan.net_in ?? plan.bandwidth ?? 0,
         traffic: plan.traffic,
         trafficType: this.inferTrafficType(plan),
         upstreamPrices: JSON.stringify(upstreamPrices),
@@ -801,6 +803,9 @@ export class ProductService {
     const displayName = friendlyZoneName && officialName
       ? `${friendlyZoneName} ${officialName}`
       : (officialName || p.name || '');
+    // 上行带宽：旧数据可能为 null，兜底用 bandwidth（下行）
+    const netIn = p.netIn != null ? Number(p.netIn) : Number(p.bandwidth ?? 0);
+    const bandwidth = Number(p.bandwidth ?? 0);
     return {
       ...p,
       // 显示名 = 友好区域名 + 空格 + 上游套餐官方名（如「香港 KVM 标准版」）
@@ -822,6 +827,12 @@ export class ProductService {
       machine: p.machine ?? '',
       line: p.line ?? '',
       chargeType: p.chargeType ?? '',
+      // 带宽：bandwidth=下行 / netIn=上行（旧数据为 null 时与 bandwidth 相同）
+      bandwidth,
+      netIn,
+      // 流量类型友好标签（前端可直接显示）
+      // unlimited=不限流量 / stacked=流量叠加型（每月基础流量用完可叠加购买）
+      trafficType: p.trafficType ?? 'unlimited',
       tags: p.tags ? JSON.parse(p.tags) : [],
     };
   }

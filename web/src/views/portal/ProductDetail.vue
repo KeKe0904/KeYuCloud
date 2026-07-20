@@ -358,10 +358,10 @@ const selectedAppCount = computed<number>(() => {
 // 配置摘要展示项数（用于"已选配置"徽标，反映当前展示的配置项数量）
 const configSummaryCount = computed<number>(() => {
   if (!product.value) return 0;
-  // 基础项始终展示：区域 / 配置 / 带宽 / 网络模式 / IP 类型 / 购买时长 = 6 项
-  let n = 6;
+  // 基础项始终展示：区域 / 配置 / 带宽 / 流量 / 网络模式 / IP 类型 / 购买时长 = 7 项
+  // 注：流量项现在始终展示（不限流量也显示「不限」）
+  let n = 7;
   if (product.value.machine) n++;       // 处理器
-  if (product.value.traffic) n++;       // 流量
   if (product.value.line) n++;          // 线路
   if (product.value.chargeType) n++;    // 计费类型
   if (currentOs.value) n++;             // 操作系统
@@ -1070,11 +1070,21 @@ async function refreshStock() {
                   </tr>
                   <tr>
                     <th>带宽</th>
-                    <td class="font-mono">{{ product.bandwidth }} Mbps</td>
+                    <td class="font-mono">
+                      <template v-if="(product as any).netIn && (product as any).netIn !== product.bandwidth">
+                        ↑{{ (product as any).netIn }} / ↓{{ product.bandwidth }} Mbps
+                      </template>
+                      <template v-else>{{ product.bandwidth }} Mbps</template>
+                    </td>
                   </tr>
                   <tr>
                     <th>月流量</th>
-                    <td class="font-mono">{{ product.traffic ? product.traffic + ' GB' : '不限' }}</td>
+                    <td class="font-mono">
+                      <template v-if="product.trafficType === 'stacked'">
+                        {{ product.traffic }} GB/月（超出可叠加）
+                      </template>
+                      <template v-else>不限</template>
+                    </td>
                   </tr>
                   <tr v-if="(product as any).machine">
                     <th>处理器</th>
@@ -1461,12 +1471,20 @@ async function refreshStock() {
                 </div>
                 <div class="config-item">
                   <span class="config-item-label">带宽</span>
-                  <span class="config-item-value font-mono">{{ product.bandwidth }} Mbps</span>
+                  <span class="config-item-value font-mono">
+                    <template v-if="(product as any).netIn && (product as any).netIn !== product.bandwidth">
+                      ↑{{ (product as any).netIn }} / ↓{{ product.bandwidth }} Mbps
+                    </template>
+                    <template v-else>{{ product.bandwidth }} Mbps</template>
+                  </span>
                 </div>
-                <div class="config-item" v-if="product.traffic">
+                <div class="config-item">
                   <span class="config-item-label">流量</span>
                   <span class="config-item-value font-mono">
-                    {{ product.traffic === 0 ? '不限' : product.traffic + ' GB/月' }}
+                    <template v-if="product.trafficType === 'stacked'">
+                      {{ product.traffic }} GB/月（超出可叠加）
+                    </template>
+                    <template v-else>不限</template>
                   </span>
                 </div>
                 <div class="config-item" v-if="product.line">
