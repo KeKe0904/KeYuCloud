@@ -521,3 +521,15 @@ export class UpdatePanelConfigDto {
   @IsString()
   broadcast?: string;
 }
+
+// ============ 12. 系统更新 ============
+
+export class ForceUpdateDto {
+  @IsOptional()
+  @IsString()
+  @Matches(/^[a-zA-Z0-9.-]+$/, {
+    message: '域名格式不正确（只允许字母、数字、点、连字符）',
+  })
+  domain?: string; // 可选：设置部署域名（用于 SSL 证书申请），设置后会写入 .deploy-meta.json
+}
+

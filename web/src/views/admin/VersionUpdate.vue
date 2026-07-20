@@ -59,6 +59,9 @@ const updateLoading = ref(false);
 const updateStatus = ref<UpdateStatus | null>(null);
 const updatePolling = ref<number | null>(null);
 
+// 部署域名（可选）：用于 SSL 证书申请，留空则使用 .deploy-meta.json 中已有配置
+const deployDomain = ref('');
+
 async function loadUpdateStatus() {
   try {
     const res: any = await adminApi.updateStatus();
@@ -71,9 +74,20 @@ async function loadUpdateStatus() {
 }
 
 async function handleForceUpdate() {
+  // 校验域名格式（如果填写了）
+  const domain = deployDomain.value.trim().toLowerCase();
+  if (domain && !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) {
+    ElMessage.error('域名格式不正确，应为 example.com 或 www.example.com 形式');
+    return;
+  }
+
+  const domainHint = domain
+    ? `\n\n本次更新将设置部署域名为：${domain}\n（自动申请 SSL 证书并启用 HTTPS，需确保域名已解析到本服务器且 80 端口可外网访问）`
+    : '';
+
   try {
     await ElMessageBox.confirm(
-      '将触发服务器一键更新（git pull → 安装依赖 → 数据库迁移 → 构建 → 重启 PM2）。\n\n更新过程中后端服务会重启，可能导致短暂不可用（10-30 秒）。\n\n确认继续？',
+      `将触发服务器一键更新（git pull → 安装依赖 → 数据库迁移 → 构建 → 重启 PM2）。\n\n更新过程中后端服务会重启，可能导致短暂不可用（10-30 秒）。${domainHint}\n\n确认继续？`,
       '触发强制更新',
       {
         customClass: 'keke-confirm-box',
@@ -89,9 +103,14 @@ async function handleForceUpdate() {
 
   updateLoading.value = true;
   try {
-    const res: any = await adminApi.forceUpdate();
+    const payload: { domain?: string } = domain ? { domain } : {};
+    const res: any = await adminApi.forceUpdate(payload);
     if (res?.success) {
       ElMessage.success('更新已开始，请通过下方状态面板查看进度');
+      // 域名已提交后清空输入框（已写入 .deploy-meta.json）
+      if (domain) {
+        deployDomain.value = '';
+      }
       startPolling();
     }
   } catch (e: any) {
@@ -354,6 +373,38 @@ onBeforeUnmount(() => {
         <span class="card-extra">DEPLOY</span>
       </div>
       <div class="card-body">
+        <!-- 域名设置（用于 SSL 证书申请） -->
+        <div class="domain-config">
+          <div class="domain-config-head">
+            <div class="domain-config-title">
+              <el-icon><Link /></el-icon>
+              <span>部署域名（可选）</span>
+            </div>
+            <el-tag size="small" type="warning" effect="plain">SSL</el-tag>
+          </div>
+          <p class="domain-config-desc">
+            填写后将自动申请 Let's Encrypt SSL 证书并启用 HTTPS。
+            需确保域名已解析到本服务器 IP，且 80 端口可被外网访问（用于 HTTP-01 验证）。
+            留空则使用服务器上 <code>.deploy-meta.json</code> 已有的域名配置。
+          </p>
+          <div class="domain-config-input">
+            <el-input
+              v-model="deployDomain"
+              placeholder="例如：keyucloud.tech"
+              :disabled="updateStatus?.isRunning"
+              clearable
+            >
+              <template #prefix>
+                <el-icon><Link /></el-icon>
+              </template>
+            </el-input>
+          </div>
+          <div class="domain-config-tip">
+            <el-icon><InfoFilled /></el-icon>
+            <span>现代浏览器对 .tech / .app 等 TLD 强制 HTTPS，未配置 SSL 会导致"无法连接"错误。</span>
+          </div>
+        </div>
+
         <!-- 更新流程说明 -->
         <div class="update-flow">
           <div class="update-flow-title">
@@ -767,6 +818,72 @@ onBeforeUnmount(() => {
   font-family: 'JetBrains Mono', monospace;
 }
 
+// ============ 域名配置 ============
+.domain-config {
+  padding: 16px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  margin-bottom: 16px;
+
+  .domain-config-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .domain-config-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+
+    .el-icon {
+      color: var(--gold-400);
+    }
+  }
+
+  .domain-config-desc {
+    margin: 0 0 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+
+    code {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-primary);
+      background: var(--bg-elevated);
+      padding: 1px 6px;
+      border-radius: 2px;
+      font-size: 11px;
+    }
+  }
+
+  .domain-config-input {
+    margin-bottom: 10px;
+  }
+
+  .domain-config-tip {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--warning);
+    line-height: 1.5;
+    padding: 8px 10px;
+    background: var(--warning-bg, rgba(245, 158, 11, 0.08));
+    border-radius: 3px;
+
+    .el-icon {
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+  }
+}
+
 // ============ 更新流程 ============
 .update-flow {
   padding: 16px;
@@ -774,6 +891,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border-light);
   border-radius: 4px;
   margin-bottom: 16px;
+
 
   &-title {
     display: flex;

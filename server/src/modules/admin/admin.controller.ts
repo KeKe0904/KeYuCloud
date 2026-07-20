@@ -42,6 +42,7 @@ import {
   UpdateProfileDto,
   UpdatePanelConfigDto,
   UpdateRainyunApiKeyDto,
+  ForceUpdateDto,
 } from './dto';
 // SMTP 模板/测试 DTO 复用 mailer 模块定义（保持解耦的同时避免重复定义）
 import {
@@ -981,15 +982,18 @@ export class AdminController {
    *
    * 关键修复：原同步设计在 update.sh 执行 pm2 reload 时会断开当前 HTTP 连接，导致 40 秒超时
    *          新设计使用 detached spawn + unref，立即返回，前端轮询状态
+   *
+   * 可选 body.domain：设置部署域名（用于 SSL 证书申请），设置后会写入 .deploy-meta.json
    */
   @Post('system/force-update')
   async forceUpdate(
     @CurrentAdmin('sub') adminId: number,
     @CurrentAdmin('role') role: string,
+    @Body() dto: ForceUpdateDto,
     @Req() req: Request,
   ) {
     this.ensureSuperAdmin(role);
-    const data = await this.admin.forceUpdate(adminId, this.ctx(req));
+    const data = await this.admin.forceUpdate(adminId, dto, this.ctx(req));
     return ApiResponse.success(data, '更新已开始');
   }
 

@@ -13,8 +13,15 @@ const ticketId = computed(() => Number(route.params.id));
 interface TicketMessage {
   id: number;
   content: string;
-  senderType: 'USER' | 'ADMIN' | 'SYSTEM';
-  senderName: string;
+  // 后端实际字段
+  fromType: 'user' | 'admin' | 'system' | 'rainyun_support';
+  fromId?: number | null;
+  fromName?: string | null;
+  // 后端附加的展示字段（getTicket 时填充）
+  senderRole?: 'user' | 'admin' | 'system' | 'rainyun_support';
+  senderName?: string;
+  senderAvatar?: string | null;
+  senderId?: number | null;
   createdAt: string;
 }
 
@@ -95,6 +102,41 @@ function formatTime(t?: string) {
 
 function formatShortTime(t?: string) {
   return t ? dayjs(t).format('MM-DD HH:mm') : '-';
+}
+
+// ============ 消息发送者辅助函数 ============
+// 后端字段：fromType / senderRole（值均为小写：user/admin/system/rainyun_support）
+function isUserMsg(msg: TicketMessage) {
+  return msg.fromType === 'user' || msg.senderRole === 'user';
+}
+function isAdminMsg(msg: TicketMessage) {
+  return msg.fromType === 'admin' || msg.senderRole === 'admin';
+}
+function isSystemMsg(msg: TicketMessage) {
+  return msg.fromType === 'system' || msg.senderRole === 'system';
+}
+function isRainyunSupport(msg: TicketMessage) {
+  return msg.fromType === 'rainyun_support' || msg.senderRole === 'rainyun_support';
+}
+
+// 获取发送者显示名（后端 senderName 已填充：管理员昵称/用户昵称/雨云客服 xxx/系统）
+function getSenderName(msg: TicketMessage): string {
+  if (msg.senderName) return msg.senderName;
+  if (isUserMsg(msg)) return '用户';
+  if (isAdminMsg(msg)) return '客服';
+  if (isRainyunSupport(msg)) return '雨云客服';
+  if (isSystemMsg(msg)) return '系统';
+  return '未知';
+}
+
+// 获取头像首字符（无头像时占位）
+function getAvatarChar(msg: TicketMessage): string {
+  const name = getSenderName(msg);
+  return name ? name.charAt(0) : '?';
+}
+
+function hasAvatar(msg: TicketMessage): boolean {
+  return !!msg.senderAvatar;
 }
 
 async function loadDetail() {
@@ -273,18 +315,33 @@ onMounted(() => {
                 v-for="msg in ticket.messages"
                 :key="msg.id"
                 class="chat-item"
-                :class="{ 'is-user': msg.senderType === 'USER', 'is-system': msg.senderType === 'SYSTEM' }"
+                :class="{
+                  'is-user': isUserMsg(msg),
+                  'is-admin': isAdminMsg(msg),
+                  'is-system': isSystemMsg(msg),
+                  'is-rainyun': isRainyunSupport(msg),
+                }"
               >
-                <div class="chat-meta">
-                  <span class="chat-sender">
-                    <el-icon v-if="msg.senderType === 'ADMIN'"><Service /></el-icon>
-                    <el-icon v-else-if="msg.senderType === 'SYSTEM'"><InfoFilled /></el-icon>
-                    <el-icon v-else><User /></el-icon>
-                    {{ msg.senderName }}
-                  </span>
-                  <span class="chat-time">{{ formatShortTime(msg.createdAt) }}</span>
+                <div class="chat-avatar">
+                  <img v-if="hasAvatar(msg)" :src="msg.senderAvatar || undefined" :alt="getSenderName(msg)" class="avatar-img" />
+                  <span v-else>{{ getAvatarChar(msg) }}</span>
                 </div>
-                <div class="chat-bubble">{{ msg.content }}</div>
+                <div class="chat-main">
+                  <div class="chat-meta">
+                    <span class="chat-sender">
+                      <el-icon v-if="isAdminMsg(msg)"><Service /></el-icon>
+                      <el-icon v-else-if="isSystemMsg(msg)"><InfoFilled /></el-icon>
+                      <el-icon v-else-if="isRainyunSupport(msg)"><ChatLineRound /></el-icon>
+                      <el-icon v-else><User /></el-icon>
+                      {{ getSenderName(msg) }}
+                    </span>
+                    <span v-if="isRainyunSupport(msg)" class="sender-tag tag-rainyun">雨云官方</span>
+                    <span v-else-if="isAdminMsg(msg)" class="sender-tag tag-admin">客服</span>
+                    <span v-else-if="isUserMsg(msg)" class="sender-tag tag-user">用户</span>
+                    <span class="chat-time">{{ formatShortTime(msg.createdAt) }}</span>
+                  </div>
+                  <div class="chat-bubble">{{ msg.content }}</div>
+                </div>
               </div>
               <el-empty v-if="!ticket.messages?.length" description="暂无对话" />
             </div>
@@ -517,24 +574,32 @@ onMounted(() => {
 
 .chat-item {
   display: flex;
-  flex-direction: column;
+  gap: 10px;
   max-width: 70%;
 
   &.is-user {
+    flex-direction: row-reverse;
     align-self: flex-end;
-    align-items: flex-end;
 
     .chat-bubble {
       background: var(--gradient-gold);
       color: var(--text-inverse);
       border-radius: 8px 2px 8px 8px;
     }
+
+    .chat-meta {
+      flex-direction: row-reverse;
+    }
+
+    .chat-avatar {
+      background: var(--gold-500);
+      color: #fff;
+    }
   }
 
   &.is-admin,
-  &:not(.is-user):not(.is-system) {
+  &:not(.is-user):not(.is-system):not(.is-rainyun) {
     align-self: flex-start;
-    align-items: flex-start;
 
     .chat-bubble {
       background: var(--bg-subtle);
@@ -555,7 +620,54 @@ onMounted(() => {
       font-size: 12px;
       border-radius: 4px;
     }
+
+    .chat-avatar {
+      display: none;
+    }
   }
+
+  &.is-rainyun {
+    align-self: flex-start;
+
+    .chat-avatar {
+      background: linear-gradient(135deg, #6a5acd, #483d8b);
+      color: #fff;
+    }
+    .chat-bubble {
+      background: rgba(106, 90, 205, 0.06);
+      color: var(--text-primary);
+      border: 1px solid rgba(106, 90, 205, 0.3);
+      border-radius: 2px 8px 8px 8px;
+    }
+  }
+}
+
+.chat-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+  flex-shrink: 0;
+  overflow: hidden;
+
+  .avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 4px;
+  }
+}
+
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .chat-meta {
@@ -572,6 +684,32 @@ onMounted(() => {
     gap: 4px;
     color: var(--text-secondary);
     font-weight: 500;
+  }
+}
+
+.sender-tag {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  border: 1px solid;
+
+  &.tag-admin {
+    background: rgba(212, 175, 55, 0.12);
+    color: var(--text-gold);
+    border-color: rgba(212, 175, 55, 0.3);
+  }
+  &.tag-user {
+    background: rgba(100, 116, 139, 0.12);
+    color: var(--text-secondary);
+    border-color: var(--border-base);
+  }
+  &.tag-rainyun {
+    background: rgba(106, 90, 205, 0.12);
+    color: #6a5acd;
+    border-color: rgba(106, 90, 205, 0.3);
   }
 }
 

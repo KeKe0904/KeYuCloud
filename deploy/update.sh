@@ -662,6 +662,9 @@ ensure_nginx_config() {
   elif ! grep -qE 'listen\s+80\s+default_server' "$nginx_conf" 2>/dev/null; then
     warn "Nginx 配置缺少 default_server 标志，将重新生成（确保抢占 80 端口）"
     need_regen=1
+  elif ! grep -q 'acme-challenge' "$nginx_conf" 2>/dev/null; then
+    warn "Nginx 配置缺少 Let's Encrypt 验证路径，将重新生成（支持 SSL 自动申请）"
+    need_regen=1
   fi
 
   # 如果禁用了默认站点但我们的配置已存在且正确，仍需 reload 让变更生效
@@ -683,6 +686,7 @@ ensure_nginx_config() {
 # 端口策略：
 #   - 前端 HTTP：80（主入口，default_server，提供前端静态文件 + API 反代）
 #   - 后端 NestJS：3001（仅 127.0.0.1，由本配置反代 /api/）
+#   - HTTPS：443（由 ensure_ssl_config 函数动态启用，需要域名 + Let's Encrypt 证书）
 server {
     # default_server: 抢占 80 端口的默认请求，避免被其他 server 块抢占
     listen 80 default_server;
@@ -695,6 +699,14 @@ server {
 
     # 上传文件大小限制
     client_max_body_size 10m;
+
+    # Let's Encrypt HTTP-01 验证路径（必须在 try_files 之前，且不可被 SPA 回退拦截）
+    # ensure_ssl_config 函数会用此路径申请 SSL 证书
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type "text/plain";
+        try_files \$uri =404;
+    }
 
     # SPA 路由回退（关键：所有未匹配静态文件的路径都回退到 index.html，
     # 由 Vue Router 处理前端路由，如 /admin/environment、/admin/version-update）
@@ -744,6 +756,267 @@ EOF
 }
 
 # ============================================================================
+# SSL 证书自动申请与 HTTPS 配置
+# ----------------------------------------------------------------------------
+# 问题：现代浏览器（Firefox/Chrome）对 .tech/.app 等新 TLD 默认强制 HTTPS-only 模式，
+#       访问 http://domain 会被自动升级到 https://，但服务器没监听 443 端口，
+#       导致用户看到"无法连接"的错误，但 HTTP 80 实际工作正常。
+#
+# 本函数在每次部署时：
+#   1. 从 .deploy-meta.json 读取域名（首次部署时由 deploy.sh 写入）
+#   2. 如果域名为空或为 IP，跳过（保持 HTTP）
+#   3. 如果域名是有效域名：
+#      a. 创建 ACME challenge webroot 目录
+#      b. 检查 certbot 是否已安装，未安装则安装
+#      c. 检查是否已有证书，没有则用 certbot --webroot 申请 Let's Encrypt 证书
+#      d. 配置 Nginx 443 server 块 + 80 → 443 重定向
+#      e. reload nginx
+# ============================================================================
+ensure_ssl_config() {
+  if ! has_cmd nginx; then
+    return 0
+  fi
+
+  # 1. 读取域名：优先使用 DEPLOY_DOMAIN 环境变量，其次从 .deploy-meta.json 读取
+  local meta_file="$APP_DIR/deploy/.deploy-meta.json"
+  local domain=""
+
+  # 1a. 环境变量优先（允许 force-update API 传入 domain 覆盖）
+  if [[ -n "${DEPLOY_DOMAIN:-}" ]]; then
+    domain="$DEPLOY_DOMAIN"
+    info "从 DEPLOY_DOMAIN 环境变量读取域名: $domain"
+    # 回写到 .deploy-meta.json，确保后续部署也能读到
+    if [[ -f "$meta_file" ]]; then
+      if grep -q '"domain"' "$meta_file" 2>/dev/null; then
+        # 替换已有 domain 字段
+        sed -i -E "s|\"domain\"\s*:\s*\"[^\"]*\"|\"domain\": \"$domain\"|" "$meta_file"
+      else
+        # 插入 domain 字段（在最后一行 } 之前）
+        sed -i -E "s|^\}|  \"domain\": \"$domain\",\n}|" "$meta_file"
+      fi
+      info "已将 domain 回写到 $meta_file"
+    fi
+  fi
+
+  # 1b. 从 .deploy-meta.json 读取
+  if [[ -z "$domain" && -f "$meta_file" ]]; then
+    # 用 grep + sed 提取 domain 字段，避免依赖 jq
+    domain=$(grep -oE '"domain"\s*:\s*"[^"]*"' "$meta_file" 2>/dev/null | head -1 | sed -E 's/.*"domain"\s*:\s*"([^"]*)".*/\1/')
+  fi
+
+  if [[ -z "$domain" ]]; then
+    info "未配置域名（.deploy-meta.json 中 domain 为空，且未设置 DEPLOY_DOMAIN 环境变量），跳过 SSL 配置"
+    info "  设置域名的方法："
+    info "  1) 编辑 $meta_file 中的 domain 字段"
+    info "  2) 通过 force-update API 传入 domain 参数"
+    info "  3) 重新运行 deploy.sh 并配置域名"
+    return 0
+  fi
+
+  # 2. 判断是否为有效域名（非 IP，且包含至少一个点）
+  if [[ "$domain" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    info "domain 是 IP 地址（$domain），跳过 SSL 配置"
+    return 0
+  fi
+  if [[ "$domain" != *.* ]]; then
+    info "domain 不是有效域名（$domain），跳过 SSL 配置"
+    return 0
+  fi
+
+  info "检测到域名: $domain，将配置 HTTPS"
+
+  # 3. 创建 ACME challenge webroot 目录
+  local acme_webroot="/var/www/letsencrypt"
+  mkdir -p "$acme_webroot" >>"$UPDATE_LOG" 2>&1
+  chmod 755 "$acme_webroot" >>"$UPDATE_LOG" 2>&1
+
+  # 4. 安装 certbot（如果未安装）
+  if ! has_cmd certbot; then
+    info "安装 certbot..."
+    # 加载 /etc/os-release 获取发行版信息（ID_LIKE 用于判断 debian/ubuntu 系）
+    local os_id_like=""
+    if [[ -f /etc/os-release ]]; then
+      # shellcheck disable=SC1091
+      os_id_like=$(. /etc/os-release 2>/dev/null && echo "${ID_LIKE:-${ID:-}}" 2>/dev/null || echo "")
+    fi
+    case "$os_id_like" in
+      *debian*|*ubuntu*)
+        DEBIAN_FRONTEND=noninteractive apt-get install -y certbot python3-certbot-nginx >>"$UPDATE_LOG" 2>&1 || true
+        ;;
+      *)
+        if has_cmd dnf; then
+          dnf install -y certbot python3-certbot-nginx >>"$UPDATE_LOG" 2>&1 || true
+        elif has_cmd yum; then
+          yum install -y certbot python3-certbot-nginx >>"$UPDATE_LOG" 2>&1 || true
+        elif has_cmd apt-get; then
+          DEBIAN_FRONTEND=noninteractive apt-get install -y certbot python3-certbot-nginx >>"$UPDATE_LOG" 2>&1 || true
+        fi
+        ;;
+    esac
+    if ! has_cmd certbot; then
+      # 尝试用 snap 安装（Ubuntu 推荐）
+      if has_cmd snap; then
+        snap install --classic certbot >>"$UPDATE_LOG" 2>&1 || true
+        ln -sf /snap/bin/certbot /usr/local/bin/certbot 2>/dev/null || true
+      fi
+    fi
+    if ! has_cmd certbot; then
+      warn "certbot 安装失败，跳过 SSL 配置（可手动安装后再次部署）"
+      return 0
+    fi
+  fi
+
+  # 5. 申请证书（仅当证书不存在时）
+  local cert_dir="/etc/letsencrypt/live/$domain"
+  if [[ -d "$cert_dir" && -f "$cert_dir/fullchain.pem" && -f "$cert_dir/privkey.pem" ]]; then
+    info "SSL 证书已存在: $cert_dir"
+  else
+    info "申请 Let's Encrypt 证书: $domain"
+    # 先确保 nginx 已 reload（让 ACME challenge 路径生效）
+    nginx -t >>"$UPDATE_LOG" 2>&1 && systemctl reload nginx >>"$UPDATE_LOG" 2>&1 || true
+
+    # 使用 webroot 模式申请（不需要停止 nginx）
+    if certbot certonly \
+        --webroot \
+        -w "$acme_webroot" \
+        -d "$domain" \
+        --non-interactive \
+        --agree-tos \
+        --register-unsafely-without-email \
+        --no-eff-email \
+        --keep-until-expiring \
+        >>"$UPDATE_LOG" 2>&1; then
+      info "Let's Encrypt 证书申请成功: $domain"
+    else
+      warn "Let's Encrypt 证书申请失败（不影响 HTTP 访问）"
+      warn "  可能原因："
+      warn "  1) 域名 $domain 未正确解析到本机 IP（curl -sI http://$domain/ 验证）"
+      warn "  2) 80 端口被防火墙拦截（外部无法访问 /.well-known/acme-challenge/）"
+      warn "  3) Let's Encrypt 限流（同一域名每周最多 5 次申请，请稍后再试）"
+      warn "  4) 已有证书但路径不匹配（检查 /etc/letsencrypt/live/）"
+      warn "  可手动执行: certbot certonly --webroot -w $acme_webroot -d $domain"
+      return 0
+    fi
+  fi
+
+  # 6. 重新生成 Nginx 配置：HTTP 重定向 + HTTPS server
+  local nginx_conf="/etc/nginx/conf.d/rainyun-reseller.conf"
+  local web_dist_dir="$APP_DIR/web/dist"
+
+  info "生成 HTTPS Nginx 配置: $nginx_conf"
+  cat > "$nginx_conf" <<EOF
+# 雨云服务器分销平台 Nginx 配置（由 update.sh 自动生成 - HTTPS 模式）
+# 域名: $domain
+# 端口策略：
+#   - HTTP 80：仅重定向到 HTTPS（保持 ACME challenge 路径可访问用于证书续期）
+#   - HTTPS 443：主入口，default_server，提供前端静态文件 + API 反代
+#   - 后端 NestJS：3001（仅 127.0.0.1，由本配置反代 /api/）
+
+# ---------- HTTP → HTTPS 重定向 ----------
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name $domain;
+
+    # Let's Encrypt HTTP-01 验证路径（必须在重定向之前，不可被重定向拦截）
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type "text/plain";
+        try_files \$uri =404;
+    }
+
+    # 其余请求 301 重定向到 HTTPS
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+# ---------- HTTPS 主服务器 ----------
+server {
+    listen 443 ssl http2 default_server;
+    listen [::]:443 ssl http2 default_server;
+    server_name $domain;
+
+    # SSL 证书
+    ssl_certificate     /etc/letsencrypt/live/$domain/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$domain/privkey.pem;
+
+    # SSL 优化（A+ 评级）
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # HSTS（强制浏览器后续使用 HTTPS，1 年）
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # 前端静态资源
+    root $web_dist_dir;
+    index index.html;
+
+    # 上传文件大小限制
+    client_max_body_size 10m;
+
+    # SPA 路由回退
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    # API 反向代理 → 后端 3001
+    location /api/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 60s;
+    }
+
+    # 静态资源缓存
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
+}
+EOF
+
+  # 7. 测试配置并 reload
+  if nginx -t >>"$UPDATE_LOG" 2>&1; then
+    info "Nginx HTTPS 配置测试通过"
+    if systemctl reload nginx >>"$UPDATE_LOG" 2>&1; then
+      info "Nginx 已 reload，HTTPS 已启用：https://$domain"
+    else
+      nginx -s reload >>"$UPDATE_LOG" 2>&1 || warn "Nginx reload 失败"
+    fi
+  else
+    err "Nginx HTTPS 配置测试失败，回退到 HTTP 配置"
+    # 回退：重新触发 ensure_nginx_config 生成 HTTP 配置
+    rm -f "$nginx_conf"
+    ensure_nginx_config
+    return 1
+  fi
+
+  # 8. 确保 certbot 自动续期（systemd timer 或 cron）
+  if has_cmd systemctl; then
+    if ! systemctl list-timers 2>/dev/null | grep -q certbot; then
+      systemctl enable --now certbot.timer >>"$UPDATE_LOG" 2>&1 || true
+    fi
+  fi
+  # 兜底：写入 cron（每天凌晨 3:30 检查续期）
+  local cron_line="30 3 * * * certbot renew --quiet --deploy-hook 'systemctl reload nginx'"
+  if [[ -d /etc/cron.d ]]; then
+    if ! grep -q 'certbot renew' /etc/cron.d/* 2>/dev/null; then
+      echo "$cron_line" > /etc/cron.d/certbot-renew
+      chmod 644 /etc/cron.d/certbot-renew
+      info "已添加 certbot 续期 cron 任务"
+    fi
+  fi
+}
+
+# ============================================================================
 # 步骤 7：重启服务
 # ----------------------------------------------------------------------------
 # 关键设计：当 PM2 已管理 rainyun-api 时，update.sh 不能直接执行 pm2 reload。
@@ -762,8 +1035,13 @@ restart_services() {
   step "步骤 7/9：重启服务"
   save_step "7"
 
-  # 先确保 Nginx 配置存在且正确（解决配置丢失导致前端 404 的问题）
+  # 先确保 Nginx 基础配置存在且正确（解决配置丢失导致前端 404 的问题）
   ensure_nginx_config
+
+  # 如果配置了域名，自动申请 SSL 证书并启用 HTTPS
+  # 关键：现代浏览器对 .tech/.app 等 TLD 强制 HTTPS-only，没 SSL 会导致"无法连接"
+  # 注意：ensure_ssl_config 内部会生成 HTTPS 配置覆盖原 HTTP 配置，无需再调用 ensure_nginx_config
+  ensure_ssl_config
 
   # 检查后端是否已通过 PM2 管理
   local pm2_exists

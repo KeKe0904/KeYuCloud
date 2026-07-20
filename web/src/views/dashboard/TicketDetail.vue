@@ -105,16 +105,42 @@ function scrollToBottom() {
 }
 
 // 判断消息是否为当前用户
+// 后端字段：senderRole = 'user' | 'admin' | 'system' | 'rainyun_support'
 function isUserMessage(msg: any) {
-  return msg.senderRole === 'user' || msg.role === 'user' || msg.fromUser === true;
+  return msg.senderRole === 'user' || msg.fromType === 'user';
+}
+
+// 是否为系统消息（雨云升级提示等）
+function isSystemMessage(msg: any) {
+  return msg.senderRole === 'system' || msg.fromType === 'system';
+}
+
+// 是否为雨云官方客服消息
+function isRainyunSupport(msg: any) {
+  return msg.senderRole === 'rainyun_support' || msg.fromType === 'rainyun_support';
 }
 
 // 获取发送人名称
 function getSenderName(msg: any) {
+  // 后端已通过 senderName 字段返回展示名（管理员昵称 / 用户昵称 / 雨云客服 xxx / 系统）
+  if (msg.senderName) return msg.senderName;
+  // 兜底：根据角色生成默认名
   if (isUserMessage(msg)) return '我';
-  if (msg.senderRole === 'admin' || msg.role === 'admin') return '客服';
-  if (msg.senderRole === 'system' || msg.role === 'system') return '系统';
-  return msg.senderName || msg.sender || '客服';
+  if (isSystemMessage(msg)) return '系统';
+  if (isRainyunSupport(msg)) return '雨云客服';
+  if (msg.senderRole === 'admin' || msg.fromType === 'admin') return '客服';
+  return '客服';
+}
+
+// 获取头像首字符（用于无头像时的占位）
+function getAvatarChar(msg: any) {
+  const name = getSenderName(msg);
+  return name ? name.charAt(0) : '?';
+}
+
+// 判断是否有自定义头像
+function hasAvatar(msg: any) {
+  return !!msg.senderAvatar;
 }
 
 // 回复
@@ -267,14 +293,21 @@ onMounted(() => {
             v-for="(msg, idx) in messages"
             :key="idx"
             class="msg-row"
-            :class="{ 'is-user': isUserMessage(msg), 'is-system': msg.senderRole === 'system' || msg.role === 'system' }"
+            :class="{
+              'is-user': isUserMessage(msg),
+              'is-system': isSystemMessage(msg),
+              'is-rainyun': isRainyunSupport(msg),
+            }"
           >
             <div class="msg-avatar">
-              {{ getSenderName(msg).charAt(0) }}
+              <img v-if="hasAvatar(msg)" :src="msg.senderAvatar || undefined" :alt="getSenderName(msg)" class="avatar-img" />
+              <span v-else>{{ getAvatarChar(msg) }}</span>
             </div>
             <div class="msg-content">
               <div class="msg-meta">
                 <span class="msg-sender">{{ getSenderName(msg) }}</span>
+                <span v-if="isRainyunSupport(msg)" class="sender-tag">雨云官方</span>
+                <span v-else-if="msg.senderRole === 'admin' || msg.fromType === 'admin'" class="sender-tag">客服</span>
                 <span class="msg-time font-mono">{{ formatTime(msg.createdAt || msg.time) }}</span>
               </div>
               <div class="msg-bubble">{{ msg.content || msg.message || msg.text }}</div>
@@ -560,11 +593,22 @@ onMounted(() => {
       display: none;
     }
   }
+
+  &.is-rainyun {
+    .msg-avatar {
+      background: linear-gradient(135deg, #6a5acd, #483d8b);
+      color: #fff;
+    }
+    .sender-tag {
+      background: rgba(106, 90, 205, 0.12);
+      color: #6a5acd;
+    }
+  }
 }
 
 .msg-avatar {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: 4px;
   background: var(--bg-subtle);
   color: var(--text-secondary);
@@ -574,6 +618,26 @@ onMounted(() => {
   font-weight: 600;
   font-size: 13px;
   flex-shrink: 0;
+  overflow: hidden;
+
+  .avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 4px;
+  }
+}
+
+.sender-tag {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  background: rgba(212, 175, 55, 0.12);
+  color: var(--text-gold);
+  border: 1px solid rgba(212, 175, 55, 0.3);
 }
 
 .msg-content {

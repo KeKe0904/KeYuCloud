@@ -2168,8 +2168,12 @@ export class AdminService {
    * 触发强制更新（异步执行，立即返回 taskId）
    * 修复：原同步等待 update.sh 完成会导致 PM2 reload 时杀死当前 HTTP 连接，API 超时
    *      新设计：立即返回 taskId，update.sh 在后台执行，前端通过 GET update-status 轮询状态
+   *
+   * 可选 domain 参数：用于设置部署域名（首次部署未配置域名时，可通过此参数补充设置）
+   *   - 传入后会作为 DEPLOY_DOMAIN 环境变量传递给 update.sh
+   *   - update.sh 会将其写入 .deploy-meta.json，并据此申请 SSL 证书、配置 HTTPS
    */
-  async forceUpdate(adminId: number, ctx: AuditContext = {}) {
+  async forceUpdate(adminId: number, dto: { domain?: string } = {}, ctx: AuditContext = {}) {
     const { spawn } = require('child_process');
     const fs = require('fs');
     const path = require('path');
@@ -2207,6 +2211,26 @@ export class AdminService {
       }
     }
 
+    // 如果传入了 domain，预先写入 .deploy-meta.json（双保险：即使 update.sh 中环境变量丢失也能读到）
+    let domainForLog: string | null = null;
+    if (dto.domain && dto.domain.trim()) {
+      const domain = dto.domain.trim().toLowerCase();
+      domainForLog = domain;
+      const metaFile = path.join(appDir, 'deploy', '.deploy-meta.json');
+      try {
+        let meta: any = {};
+        if (fs.existsSync(metaFile)) {
+          meta = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+        }
+        meta.domain = domain;
+        fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2), 'utf8');
+        this.logger.log(`force-update: 已将 domain=${domain} 写入 ${metaFile}`);
+      } catch (e: any) {
+        this.logger.warn(`force-update: 写入 .deploy-meta.json 失败: ${e.message}`);
+        // 不阻断流程，update.sh 内部还会从环境变量读取
+      }
+    }
+
     // 生成 taskId
     const taskId = `update-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -2214,7 +2238,12 @@ export class AdminService {
     await this.writeAuditLog(adminId, 'system', 'force_update', {
       targetType: 'system',
       targetId: null,
-      newValue: { taskId, script: updateScript, at: new Date().toISOString() },
+      newValue: {
+        taskId,
+        script: updateScript,
+        at: new Date().toISOString(),
+        domain: domainForLog,
+      },
       ctx,
     });
 
@@ -2224,12 +2253,16 @@ export class AdminService {
     //  - nohup: 忽略 SIGHUP（PM2 reload 时可能向整个进程组发 SIGHUP）
     //  - stdio: 'ignore' + 重定向到日志：避免 stdio 管道在父进程死亡时断裂
     // 这样即使 PM2 reload 杀死当前 NestJS 进程，update.sh 仍能继续执行
-    const env = {
+    const env: any = {
       ...process.env,
       APP_DIR: appDir,
       DEPLOY_NONINTERACTIVE: '1', // 强制非交互模式
       FORCE_UPDATE_TASK_ID: taskId,
     };
+    // 传递 domain 环境变量（双保险：即使 .deploy-meta.json 写入失败，update.sh 也能读到）
+    if (domainForLog) {
+      env.DEPLOY_DOMAIN = domainForLog;
+    }
 
     // 使用 setsid 创建新会话，nohup 忽略 SIGHUP
     // 日志输出到 update.sh 自己的日志文件（由脚本内部管理）
@@ -2242,7 +2275,7 @@ export class AdminService {
     child.unref(); // 关键：让父进程可以独立退出
 
     this.logger.log(
-      `force-update 已触发: taskId=${taskId}, pid=${child.pid}, script=${updateScript}`,
+      `force-update 已触发: taskId=${taskId}, pid=${child.pid}, script=${updateScript}, domain=${domainForLog || '(unchanged)'}`,
     );
 
     // 立即返回，不等 update.sh 完成
@@ -2252,6 +2285,7 @@ export class AdminService {
       message: '更新已开始，请通过 GET /api/admin/system/update-status 查询进度',
       pid: child.pid,
       startedAt: new Date().toISOString(),
+      domain: domainForLog,
       // 提示前端：update.sh 执行 pm2 reload 时会断开当前 HTTP 连接
       // 前端应轮询 GET /api/admin/system/update-status，而不是依赖长连接
       hint: '更新过程中后端服务会重启，请等待 10-30 秒后查询状态',

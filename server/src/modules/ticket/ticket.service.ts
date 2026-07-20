@@ -232,20 +232,92 @@ export class TicketService {
   }
 
   // ===== 4. 工单详情（含 messages，按 createdAt asc） =====
+  // 关键：对 messages 做字段映射，补齐 senderRole/senderName/senderAvatar/senderId
+  // 前端依赖这些字段渲染头像与名字，否则会显示为"客服"（旧 bug）
   async getTicket(id: number, userId?: number) {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id },
       include: {
         messages: { orderBy: [{ createdAt: 'asc' }] },
         userProduct: { select: { id: true, upstreamRcsId: true, upstreamRcsName: true } },
-        user: { select: { id: true, phone: true, nickname: true } },
-        assignedAdmin: { select: { id: true, username: true, nickname: true } },
+        user: { select: { id: true, phone: true, nickname: true, avatar: true } },
+        assignedAdmin: { select: { id: true, username: true, nickname: true, avatarUrl: true } },
       },
     });
     if (!ticket) throw new NotFoundException('工单不存在');
     if (userId !== undefined && ticket.userId !== userId) {
       throw new ForbiddenException('无权访问该工单');
     }
+
+    // 批量查询所有涉及到的 user / admin，避免 N+1
+    const userIds = new Set<number>();
+    const adminIds = new Set<number>();
+    for (const m of ticket.messages) {
+      if (m.fromType === 'user' && m.fromId) userIds.add(m.fromId);
+      if (m.fromType === 'admin' && m.fromId) adminIds.add(m.fromId);
+    }
+
+    const [users, admins] = await Promise.all([
+      userIds.size > 0
+        ? this.prisma.user.findMany({
+            where: { id: { in: Array.from(userIds) } },
+            select: { id: true, phone: true, nickname: true, avatar: true },
+          })
+        : Promise.resolve([]),
+      adminIds.size > 0
+        ? this.prisma.admin.findMany({
+            where: { id: { in: Array.from(adminIds) } },
+            select: { id: true, username: true, nickname: true, avatarUrl: true, role: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const adminMap = new Map(admins.map((a) => [a.id, a]));
+
+    // 对每条消息附加发送者展示信息
+    // 字段说明：
+    //   senderRole:   'user' | 'admin' | 'system' | 'rainyun_support'（与 fromType 一致，小写）
+    //   senderName:   展示名称（管理员昵称 > 用户昵称 > 手机号 > 角色 fallback）
+    //   senderAvatar: 头像 URL（可能为 null）
+    //   senderId:     发送者 ID（user.id 或 admin.id，system/rainyun_support 为 null）
+    ticket.messages = ticket.messages.map((m: any) => {
+      let senderName = m.fromName || '';
+      let senderAvatar: string | null = null;
+      let senderId: number | null = m.fromId ?? null;
+
+      if (m.fromType === 'user' && m.fromId) {
+        const u = userMap.get(m.fromId);
+        if (u) {
+          senderName = u.nickname || u.phone || `用户#${u.id}`;
+          senderAvatar = u.avatar || null;
+        } else {
+          senderName = senderName || `用户#${m.fromId}`;
+        }
+      } else if (m.fromType === 'admin' && m.fromId) {
+        const a = adminMap.get(m.fromId);
+        if (a) {
+          senderName = a.nickname || a.username || `客服#${a.id}`;
+          senderAvatar = a.avatarUrl || null;
+        } else {
+          senderName = senderName || `客服#${m.fromId}`;
+        }
+      } else if (m.fromType === 'system') {
+        senderName = '系统';
+      } else if (m.fromType === 'rainyun_support') {
+        // fromName 已在同步时填充为 "雨云客服 xxx"
+        senderName = m.fromName || '雨云客服';
+      }
+
+      return {
+        ...m,
+        senderRole: m.fromType,
+        senderName,
+        senderAvatar,
+        senderId,
+      };
+    });
+
     return ticket;
   }
 
