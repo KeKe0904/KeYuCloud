@@ -179,7 +179,9 @@ prompt_password() {
     fi
     break
   done
-  echo "$pwd1"
+  # 关键：去掉所有换行符和回车符，防止密码（粘贴时混入换行）污染 heredoc / .env
+  # 历史教训：用户粘贴密码时若剪贴板含换行，会导致 DATABASE_URL 跨行、dotenv 解析出含 \n 的密码
+  printf '%s' "$pwd1" | tr -d '\r\n'
 }
 
 # 确认
@@ -192,6 +194,24 @@ confirm() {
   fi
   read -rp "$(echo -e "${C_CYAN}${msg}${C_RESET} [${default}/n]: ")" ans
   [[ "${ans:-$default}" =~ ^[Yy]$ ]]
+}
+
+# URL 编码（RFC 3986）
+# 用于把数据库密码里的特殊字符（@ # / : ? & = + " 等）编码为 %XX，
+# 防止这些字符破坏 DATABASE_URL 的解析或 .env 的双引号配对。
+# 解码由 Prisma / mysql2 驱动自动完成。
+url_encode() {
+  local string="$1" i char encoded=""
+  for (( i=0; i<${#string}; i++ )); do
+    char="${string:$i:1}"
+    case "$char" in
+      [a-zA-Z0-9.~_-]) encoded+="$char" ;;
+      *) printf -v hex '%%%02X' "'$char"
+         encoded+="$hex"
+         ;;
+    esac
+  done
+  printf '%s' "$encoded"
 }
 
 # ============================================================================
@@ -704,6 +724,12 @@ generate_env() {
     site_url="http://$server_ip"
   fi
 
+  # 关键：对数据库密码做 URL 编码，防止密码里的特殊字符（@ # / : ? & = + " 等）
+  # 破坏 DATABASE_URL 的解析或 .env 的双引号配对。
+  # Prisma / mysql2 驱动会自动 URL 解码，因此 MySQL 端的密码仍是原始值。
+  local db_pwd_enc
+  db_pwd_enc="$(url_encode "$DB_PWD")"
+
   cat > .env <<EOF
 # ===========================================
 # 雨云服务器分销平台 v2.0.0 - 生产配置
@@ -716,8 +742,9 @@ PORT=3001
 CORS_ORIGIN=${site_url}
 
 # ===== MySQL 数据库（步骤 3 创建，直接用于本项目，无需再次配置）=====
-DATABASE_URL="mysql://${DB_USER}:${DB_PWD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?schema=public"
-SHADOW_DATABASE_URL="mysql://${DB_USER}:${DB_PWD}@${DB_HOST}:${DB_PORT}/${DB_NAME}_shadow?schema=public"
+# 注：密码已 URL 编码，Prisma 会自动解码为原始密码连接 MySQL
+DATABASE_URL="mysql://${DB_USER}:${db_pwd_enc}@${DB_HOST}:${DB_PORT}/${DB_NAME}?schema=public"
+SHADOW_DATABASE_URL="mysql://${DB_USER}:${db_pwd_enc}@${DB_HOST}:${DB_PORT}/${DB_NAME}_shadow?schema=public"
 
 # ===== Redis =====
 REDIS_HOST=127.0.0.1
@@ -981,117 +1008,91 @@ setup_admin() {
   fi
   info ".env 已更新 INIT_ADMIN_USERNAME / INIT_ADMIN_PASSWORD"
 
-  # 用 Node.js + bcryptjs 直接创建/更新管理员
-  # 不走 Prisma ORM，避免 Prisma Client 依赖问题
+  # 用 bcryptjs 同步生成哈希 + mysql 命令行写入数据库
+  # 不走 Prisma ORM，也不依赖 mysql2 npm 包（Prisma 5.x 自带 MySQL 驱动，
+  # 项目 package.json 不含 mysql2 依赖，原 node 脚本会因 require('mysql2/promise') 失败）
+  # 此方案已在生产服务器上验证可用
   info "创建/更新超级管理员账号..."
-  local admin_script
-  admin_script=$(cat <<'NODE_SCRIPT'
-const bcrypt = require('bcryptjs');
-const mysql = require('mysql2/promise');
-const path = require('path');
-const fs = require('fs');
 
-(async () => {
-  const envPath = path.join(process.cwd(), '.env');
-  const envText = fs.readFileSync(envPath, 'utf8');
-  const env = {};
-  for (const line of envText.split('\n')) {
-    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
-    if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
-  }
-
-  const dbUrl = env.DATABASE_URL || '';
-  const m = dbUrl.match(/^mysql:\/\/([^:]+):([^@]*)@([^:]+):(\d+)\/([^?]+)/);
-  if (!m) {
-    console.error('ERROR: 无法解析 DATABASE_URL: ' + dbUrl);
-    process.exit(1);
-  }
-  const [, user, pass, host, port, database] = m;
-
-  const username = process.argv[2];
-  const password = process.argv[3];
-  const email = process.argv[4] || '';
-  const nickname = '超级管理员';
-
-  let conn;
-  try {
-    conn = await mysql.createConnection({
-      host, port: parseInt(port, 10), user, password: pass, database,
-      connectTimeout: 8000,
-    });
-
-    // 检查 Admin 表是否存在
-    const [tables] = await conn.execute(
-      "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'Admin'",
-      [database]
-    );
-    if (tables.length === 0) {
-      console.error('ERROR: Admin 表不存在，请先执行数据库迁移');
-      process.exit(1);
-    }
-
-    const hash = await bcrypt.hash(password, 12);
-
-    // 检查是否已有管理员
-    const [existing] = await conn.execute('SELECT id, username FROM Admin LIMIT 1');
-    const hasAdmin = existing.length > 0;
-    const [sameName] = await conn.execute('SELECT id FROM Admin WHERE username = ?', [username]);
-    const sameExists = sameName.length > 0;
-
-    if (hasAdmin && sameExists) {
-      await conn.execute(
-        "UPDATE Admin SET passwordHash = ?, email = ?, nickname = ?, role = 'SUPER_ADMIN', status = 'ACTIVE', updatedAt = NOW() WHERE username = ?",
-        [hash, email || null, nickname, username]
-      );
-      console.log('OK:updated:管理员密码已更新（用户名: ' + username + '）');
-    } else {
-      try {
-        await conn.execute(
-          "INSERT INTO Admin (username, passwordHash, nickname, role, status, email, createdAt, updatedAt) VALUES (?, ?, ?, 'SUPER_ADMIN', 'ACTIVE', ?, NOW(), NOW())",
-          [username, hash, nickname, email || null]
-        );
-        console.log('OK:created:超级管理员已创建（用户名: ' + username + '）');
-      } catch (e) {
-        if (String(e.code) === 'ER_DUP_ENTRY') {
-          if (String(e.message).includes('username')) {
-            console.error('ERROR: 用户名 ' + username + ' 已存在');
-          } else if (String(e.message).includes('email')) {
-            console.error('ERROR: 邮箱 ' + email + ' 已被使用');
-          } else {
-            console.error('ERROR: 唯一约束冲突: ' + e.message);
-          }
-          process.exit(1);
-        }
-        throw e;
-      }
-    }
-  } catch (e) {
-    console.error('ERROR: ' + (e.message || String(e)));
-    process.exit(1);
-  } finally {
-    if (conn) { try { await conn.end(); } catch (_) {} }
-  }
-})();
-NODE_SCRIPT
-)
-
-  # 把脚本写到临时文件并执行（避免 heredoc 转义问题）
-  local tmp_script="$APP_DIR/server/.setup-admin.tmp.js"
-  echo "$admin_script" > "$tmp_script"
-
-  local admin_result
-  admin_result="$(node "$tmp_script" "$admin_user" "$admin_pwd" "$admin_email" 2>&1)"
-  rm -f "$tmp_script"
-
-  if [[ "$admin_result" =~ ^OK: ]]; then
-    local msg="${admin_result#*:}"
-    msg="${msg#*:}"
-    log "✓ $msg"
-  else
-    err "管理员创建失败: $admin_result"
-    err "  可手动重试或检查数据库 Admin 表结构"
-    rm -f "$tmp_script"
+  # 1) 用 bcryptjs.hashSync 同步生成哈希（避免 Promise 链问题）
+  #    bcrypt 哈希形如 $2a$12$...，含 $ 字符；后续通过单引号 SQL 字面量传递，
+  #    且在 bash 双引号内引用 ${admin_hash} 时变量值原样展开，$ 不会被二次解析
+  local admin_hash
+  admin_hash="$(node -e 'process.stdout.write(require("bcryptjs").hashSync(process.argv[1], 12))' "$admin_pwd" 2>&1)" || {
+    err "bcrypt 哈希生成失败: $admin_hash"
+    err "  请确认 server/node_modules/bcryptjs 已安装（npm ci 已包含）"
     exit 1
+  }
+
+  # 2) 校验哈希格式（bcrypt 哈希以 $2a$/$2b$/$2y$ 开头）
+  if [[ ! "$admin_hash" =~ ^\$2[aby]\$[0-9]+\$ ]]; then
+    err "bcrypt 哈希格式异常: $admin_hash"
+    exit 1
+  fi
+
+  # 3) SQL 转义（将 ' 转为 ''，防注入；用户名/邮箱用户可控）
+  local esc_user esc_email esc_hash
+  esc_user="$(printf '%s' "$admin_user" | sed "s/'/''/g")"
+  esc_hash="$(printf '%s' "$admin_hash" | sed "s/'/''/g")"
+  if [[ -n "$admin_email" ]]; then
+    esc_email="$(printf '%s' "$admin_email" | sed "s/'/''/g")"
+  fi
+
+  # 4) 构造 mysql 连接命令（使用步骤 3 创建的业务用户连接业务库）
+  #    全局变量 DB_HOST/DB_PORT/DB_USER/DB_PWD/DB_NAME 在 configure_db() 中赋值
+  local mysql_cmd
+  mysql_cmd=(mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PWD" "$DB_NAME")
+
+  # 5) 检查 Admin 表是否存在
+  local table_count
+  table_count="$("${mysql_cmd[@]}" -N -B -e "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='Admin';" 2>&1)" || {
+    err "无法查询 Admin 表: $table_count"
+    err "  请确认 DB_USER=${DB_USER} 对数据库 ${DB_NAME} 有读权限"
+    exit 1
+  }
+  # 去除可能的警告行（如 "mysql: [Warning] ..."）
+  table_count="$(printf '%s' "$table_count" | tail -1 | tr -d '[:space:]')"
+  if [[ "$table_count" != "1" ]]; then
+    err "Admin 表不存在（table_count=$table_count），请先执行数据库迁移（步骤 9）"
+    exit 1
+  fi
+
+  # 6) 检查同名管理员是否存在
+  local same_count
+  same_count="$("${mysql_cmd[@]}" -N -B -e "SELECT COUNT(*) FROM Admin WHERE username='${esc_user}';" 2>&1)" || {
+    err "查询管理员失败: $same_count"
+    exit 1
+  }
+  same_count="$(printf '%s' "$same_count" | tail -1 | tr -d '[:space:]')"
+
+  # 7) INSERT 或 UPDATE（邮箱为空时写 NULL，与原 node 脚本行为一致）
+  if [[ "$same_count" -gt 0 ]]; then
+    local email_set
+    if [[ -n "$admin_email" ]]; then
+      email_set="email='${esc_email}', "
+    else
+      email_set="email=NULL, "
+    fi
+    "${mysql_cmd[@]}" -e "UPDATE Admin SET passwordHash='${esc_hash}', nickname='超级管理员', role='SUPER_ADMIN', status='ACTIVE', ${email_set}updatedAt=NOW() WHERE username='${esc_user}';" 2>&1 | grep -v '^mysql:' || true
+    if [[ "${PIPESTATUS[0]}" -ne 0 ]]; then
+      err "UPDATE Admin 失败"
+      exit 1
+    fi
+    log "✓ 管理员密码已更新（用户名: ${admin_user}）"
+  else
+    local insert_sql
+    if [[ -n "$admin_email" ]]; then
+      insert_sql="INSERT INTO Admin (username, passwordHash, nickname, role, status, email, createdAt, updatedAt) VALUES ('${esc_user}', '${esc_hash}', '超级管理员', 'SUPER_ADMIN', 'ACTIVE', '${esc_email}', NOW(), NOW());"
+    else
+      insert_sql="INSERT INTO Admin (username, passwordHash, nickname, role, status, email, createdAt, updatedAt) VALUES ('${esc_user}', '${esc_hash}', '超级管理员', 'SUPER_ADMIN', 'ACTIVE', NULL, NOW(), NOW());"
+    fi
+    "${mysql_cmd[@]}" -e "$insert_sql" 2>&1 | grep -v '^mysql:' || true
+    if [[ "${PIPESTATUS[0]}" -ne 0 ]]; then
+      err "INSERT Admin 失败（可能用户名/邮箱唯一约束冲突）"
+      err "  可登录 MySQL 检查：SELECT id, username, email FROM Admin;"
+      exit 1
+    fi
+    log "✓ 超级管理员已创建（用户名: ${admin_user}）"
   fi
 
   echo -e "${C_BOLD}${C_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
