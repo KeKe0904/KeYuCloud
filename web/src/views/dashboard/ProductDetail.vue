@@ -777,7 +777,13 @@ onUnmounted(() => {
                 {{ upstreamInfo?.disk ? formatDisk(upstreamInfo.disk) : '-' }}
               </el-descriptions-item>
               <el-descriptions-item label="带宽">
-                {{ upstreamInfo?.bandwidth ? `${upstreamInfo.bandwidth} Mbps` : '-' }}
+                <template v-if="upstreamInfo?.net_in && upstreamInfo.net_in !== upstreamInfo.bandwidth">
+                  ↑{{ upstreamInfo.net_in }} / ↓{{ upstreamInfo.bandwidth }} Mbps
+                </template>
+                <template v-else-if="upstreamInfo?.bandwidth">
+                  {{ upstreamInfo.bandwidth }} Mbps
+                </template>
+                <template v-else>-</template>
               </el-descriptions-item>
               <el-descriptions-item label="操作系统">
                 {{ upstreamInfo?.os_name || '-' }}

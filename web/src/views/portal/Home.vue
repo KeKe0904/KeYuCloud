@@ -228,7 +228,12 @@ onMounted(() => {
                 </div>
                 <div class="spec-item">
                   <div class="spec-label eyebrow">带宽</div>
-                  <div class="spec-value">{{ product.bandwidth }} Mbps</div>
+                  <div class="spec-value">
+                    <template v-if="product.netIn && product.netIn !== product.bandwidth">
+                      {{ product.netIn }}/{{ product.bandwidth }} Mbps
+                    </template>
+                    <template v-else>{{ product.bandwidth }} Mbps</template>
+                  </div>
                 </div>
               </div>
               <div class="product-card-footer">

@@ -269,8 +269,17 @@ watch(currentZone, () => {
                     <td class="num-cell font-mono">{{ p.cpu }} 核</td>
                     <td class="num-cell font-mono">{{ p.memory }} GB</td>
                     <td class="num-cell font-mono">{{ p.disk }} GB</td>
-                    <td class="num-cell font-mono">{{ p.bandwidth }} Mbps</td>
-                    <td class="num-cell font-mono">{{ p.traffic ? p.traffic + ' GB' : '不限' }}</td>
+                    <td class="num-cell font-mono">
+                      <template v-if="p.netIn && p.netIn !== p.bandwidth">
+                        {{ p.netIn }}/{{ p.bandwidth }}
+                      </template>
+                      <template v-else>{{ p.bandwidth }}</template>
+                      Mbps
+                    </td>
+                    <td class="num-cell font-mono">
+                      <template v-if="p.trafficType === 'stacked'">{{ p.traffic }} GB</template>
+                      <template v-else>不限</template>
+                    </td>
                     <td class="num-cell font-mono">
                       <span :class="(p as any).netMode === 'nat' ? 'text-nat' : 'text-normal'">
                         {{ (p as any).netMode === 'nat' ? 'NAT 共享' : '独立 IP' }}

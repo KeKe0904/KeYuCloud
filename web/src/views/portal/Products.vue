@@ -431,7 +431,12 @@ watch(
                 <div class="spec-name eyebrow">磁盘 GB</div>
               </div>
               <div class="spec-cell">
-                <div class="spec-num font-mono">{{ product.bandwidth }}</div>
+                <div class="spec-num font-mono">
+                  <template v-if="product.netIn && product.netIn !== product.bandwidth">
+                    {{ product.netIn }}/{{ product.bandwidth }}
+                  </template>
+                  <template v-else>{{ product.bandwidth }}</template>
+                </div>
                 <div class="spec-name eyebrow">带宽 Mbps</div>
               </div>
             </div>
