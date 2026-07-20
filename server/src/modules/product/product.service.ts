@@ -360,6 +360,8 @@ export class ProductService {
             upstreamPlanName: plan.name,
             // 同步官方名称到本地 name 字段（确保和官方一致）
             name: plan.name,
+            // 描述：优先用上游套餐中文名（如「KVM 入门版」），为空时保留现有 description
+            description: plan.chinese || existing.description || null,
             zone: plan.zone,
             zoneName: plan.zone_name,
             cpu: plan.cpu,
@@ -408,6 +410,8 @@ export class ProductService {
               name: plan.name,
               upstreamPlanId: plan.id,
               upstreamPlanName: plan.name,
+              // 描述：用上游套餐中文名（如「KVM 入门版」）
+              description: plan.chinese || null,
               category: 'RCS',
               zone: plan.zone,
               zoneName: plan.zone_name,

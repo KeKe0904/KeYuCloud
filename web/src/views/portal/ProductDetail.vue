@@ -370,6 +370,30 @@ const configSummaryCount = computed<number>(() => {
   return n;
 });
 
+// 默认系统盘类型标签（基于 upstreamDiskSizes 推断，与后端 mapPlan 的 disk 字段推断逻辑一致）
+// 雨云 disk_size 字段：{"cloud-ssd":30,"cloud-hdd":100} 每种盘型默认容量
+// 后端 mapPlan 取 disk 字段时的优先级：cloud-ssd > chdd > hdd > cloud-hdd > 第一个
+// 这里基于同样优先级推断默认盘型，用于规格表显示
+const defaultDiskTypeLabel = computed<string>(() => {
+  if (!product.value) return 'SSD';
+  let sizes: any = (product.value as any).upstreamDiskSizes;
+  if (typeof sizes === 'string') {
+    try { sizes = JSON.parse(sizes || '{}'); } catch { sizes = {}; }
+  }
+  if (!sizes || typeof sizes !== 'object' || Object.keys(sizes).length === 0) {
+    return 'SSD'; // 兜底
+  }
+  // 优先级与后端 mapPlan 一致
+  if ('cloud-ssd' in sizes) return DISK_TYPE_LABELS['cloud-ssd'] ?? '云SSD';
+  if ('chdd' in sizes) return DISK_TYPE_LABELS['chdd'] ?? '云HDD';
+  if ('hdd' in sizes) return DISK_TYPE_LABELS['hdd'] ?? 'HDD';
+  if ('cloud-hdd' in sizes) return DISK_TYPE_LABELS['cloud-hdd'] ?? '云HDD';
+  if ('ssd' in sizes) return DISK_TYPE_LABELS['ssd'] ?? 'SSD';
+  // 其他未知盘型，取第一个
+  const firstKey = Object.keys(sizes)[0];
+  return DISK_TYPE_LABELS[firstKey] ?? firstKey ?? 'SSD';
+});
+
 // 判断某变量是否应该显示（基于 depend_var / depend_regex 联动）
 function shouldShowVar(app: AppTemplate, vDef: { depend_var?: string; depend_regex?: string }): boolean {
   if (!vDef.depend_var) return true;
@@ -1066,7 +1090,7 @@ async function refreshStock() {
                   </tr>
                   <tr>
                     <th>系统盘</th>
-                    <td class="font-mono">{{ product.disk }} GB SSD</td>
+                    <td class="font-mono">{{ product.disk }} GB {{ defaultDiskTypeLabel }}</td>
                   </tr>
                   <tr>
                     <th>带宽</th>
