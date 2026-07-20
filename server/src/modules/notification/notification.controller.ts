@@ -16,6 +16,10 @@ export class NotificationController {
     const { page, pageSize, skip } = parsePaging(query);
     const where: any = { userId };
     if (query.type) where.type = query.type;
+    // 支持按已读/未读过滤（前端"未读"tab 传 isRead=false）
+    if (query.isRead !== undefined && query.isRead !== '') {
+      where.isRead = query.isRead === 'true' || query.isRead === true;
+    }
     const [list, total] = await Promise.all([
       this.prisma.notification.findMany({
         where,

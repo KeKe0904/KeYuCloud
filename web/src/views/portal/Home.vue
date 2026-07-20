@@ -212,7 +212,7 @@ onMounted(() => {
                 </div>
                 <div class="spec-item">
                   <div class="spec-label eyebrow">内存</div>
-                  <div class="spec-value">{{ product.memory }} MB</div>
+                  <div class="spec-value">{{ product.memory }} GB</div>
                 </div>
                 <div class="spec-item">
                   <div class="spec-label eyebrow">磁盘</div>
