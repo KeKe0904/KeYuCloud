@@ -814,6 +814,18 @@ async function handleBuy() {
     if (!valid) return;
     submitting.value = true;
     try {
+      // 下单前刷新库存（实时校验，避免本地快照过期）
+      // 仅当本地库存 >0（有限库存）时才刷新，无限库存（0）跳过
+      const localStockBeforeSubmit = Number((product.value as any)?.availableStock ?? 0);
+      if (localStockBeforeSubmit > 0 && localStockBeforeSubmit <= 10) {
+        await refreshStock();
+        const newStock = Number((product.value as any)?.availableStock ?? 0);
+        if (newStock > 0 && newStock < form.quantity) {
+          ElMessage.error(`库存不足，当前剩余 ${newStock} 台，您选择了 ${form.quantity} 台`);
+          submitting.value = false;
+          return;
+        }
+      }
       // 将选中的 app_id 数组转为 appVars 对象数组
       // 每个应用的 vars 从 form.appVars 中按 `${appId}:${varName}` 取值
       const appVars = form.selectedAppIds.map((appId) => {
@@ -897,7 +909,33 @@ onMounted(() => {
   // fetchOsList 改由 watch(product.zone) 触发，确保 product 就绪后再按 region 拉取
   fetchAppTemplates();
   // 注：网络区域已改为只读展示商品 zone，无需 fetchZones
+  // 进入页面后异步刷新库存（不阻塞首屏）
+  refreshStock();
 });
+
+// 实时刷新库存（调上游 /product/rcs/plans 获取最新 available_stock）
+// 不阻塞页面加载，失败时静默使用本地快照
+const stockRefreshing = ref(false);
+const stockUpdatedAt = ref<Date | null>(null);
+async function refreshStock() {
+  if (!productId.value) return;
+  stockRefreshing.value = true;
+  try {
+    const res = await productApi.stock(productId.value);
+    if (res.success && res.data) {
+      const newStock = Number(res.data.availableStock ?? 0);
+      if (product.value) {
+        // 实时更新产品对象的 availableStock，触发 stockText computed 重算
+        (product.value as any).availableStock = newStock;
+      }
+      stockUpdatedAt.value = new Date(res.data.updatedAt || Date.now());
+    }
+  } catch {
+    // 静默失败，使用本地快照
+  } finally {
+    stockRefreshing.value = false;
+  }
+}
 </script>
 
 <template>
@@ -976,7 +1014,18 @@ onMounted(() => {
               <div class="info-item">
                 <span class="info-label eyebrow">库存</span>
                 <span class="info-value font-mono" :class="{ 'stock-low': isStockLow }">
+                  <el-icon v-if="stockRefreshing" class="is-loading" style="vertical-align: -2px; margin-right: 4px;">
+                    <Loading />
+                  </el-icon>
                   {{ stockText }}
+                  <el-icon
+                    v-if="!stockRefreshing"
+                    class="stock-refresh-icon"
+                    title="点击刷新库存"
+                    @click="refreshStock"
+                  >
+                    <Refresh />
+                  </el-icon>
                 </span>
               </div>
               <div class="info-item">
@@ -1946,9 +1995,23 @@ onMounted(() => {
 
   // 库存紧张高亮
   .stock-low {
-    color: var(--warning, #e6a23c);
-    font-weight: 600;
+  color: var(--warning, #e6a23c);
+  font-weight: 600;
+}
+
+// 库存刷新图标
+.stock-refresh-icon {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary, #909399);
+  cursor: pointer;
+  vertical-align: -1px;
+  transition: color 0.2s;
+
+  &:hover {
+    color: var(--primary, #409eff);
   }
+}
 }
 
 // NAT 共享 IP 提示框

@@ -60,4 +60,14 @@ export class ProductController {
     const product = await this.productService.getProduct(parseInt(id, 10));
     return ApiResponse.success(product);
   }
+
+  // 实时库存查询（调上游 /product/rcs/plans 获取最新 available_stock）
+  // 返回 { availableStock, upstreamAvailable, updatedAt, fallback? }
+  // 用途：购买页进入时、下单前实时刷新库存，避免本地快照过期
+  @Public()
+  @Get(':id/stock')
+  async stock(@Param('id') id: string) {
+    const result = await this.productService.getRealtimeStock(parseInt(id, 10));
+    return ApiResponse.success(result);
+  }
 }

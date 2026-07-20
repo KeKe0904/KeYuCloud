@@ -183,6 +183,11 @@ export const productApi = {
   detail(id: number) {
     return request.get(`/products/${id}`);
   },
+  // 实时库存查询（调上游 /product/rcs/plans 获取最新 available_stock）
+  // 返回 { availableStock, upstreamAvailable, updatedAt, fallback? }
+  stock(id: number) {
+    return request.get(`/products/${id}/stock`);
+  },
   osList(region?: string) {
     // 雨云 OS 按 region 分组，不同区域可用 OS 不同
     // 用法：osList() → 所有区域；osList('cn-sq1') → 仅该区域

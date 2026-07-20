@@ -93,35 +93,119 @@ export class ProductService {
   // ===== 1. 同步上游套餐 =====
   // 调度策略：每小时检查一次系统配置
   //   - auto_sync_upstream = false → 跳过
-  //   - auto_sync_upstream = true 且当前小时 = auto_sync_hour → 执行同步
-  //   - 同一天只同步一次（lastSyncDate 防重复）
-  private lastSyncDate: string = ''; // YYYY-MM-DD 格式，避免同一天多次同步
+  //   - auto_sync_upstream = true → 执行同步（含价格、库存、IP/盘选项等全量字段）
+  //   - 同一小时内只同步一次（lastSyncHour 防重复，避免 Cron 重复触发）
+  // 注：库存同步频率独立于全量同步 —— 库存可由 getRealtimeStock 实时查询上游
+  private lastSyncHour: string = ''; // YYYY-MM-DD HH 格式，避免同一小时内多次同步
   @Cron('0 * * * *')
   async scheduledSyncUpstreamPlans() {
     // 读取系统配置
     const autoSyncRow = await this.prisma.systemConfig.findUnique({
       where: { key: 'auto_sync_upstream' },
     });
-    const autoSyncHourRow = await this.prisma.systemConfig.findUnique({
-      where: { key: 'auto_sync_hour' },
-    });
 
     const autoSync = autoSyncRow?.value === 'true';
     if (!autoSync) return;
 
-    const configuredHour = autoSyncHourRow ? parseInt(autoSyncHourRow.value, 10) : 3;
-    const currentHour = new Date().getHours();
-    if (Number.isNaN(configuredHour) || currentHour !== configuredHour) return;
+    // 同一小时内只同步一次
+    const now = new Date();
+    const currentHourKey = `${now.toISOString().slice(0, 13)}`; // YYYY-MM-DDTHH
+    if (this.lastSyncHour === currentHourKey) return;
+    this.lastSyncHour = currentHourKey;
 
-    // 同一天只同步一次
-    const today = new Date().toISOString().slice(0, 10);
-    if (this.lastSyncDate === today) return;
-    this.lastSyncDate = today;
+    this.logger.log(`触发自动同步上游套餐（${now.toLocaleString('zh-CN')}）`);
+    try {
+      await this.syncUpstreamPlans();
+    } catch (e: any) {
+      this.logger.error(`自动同步上游套餐失败: ${e.message}`);
+    }
+  }
 
-    this.logger.log(
-      `触发自动同步（配置时间 ${String(configuredHour).padStart(2, '0')}:00）`,
-    );
-    await this.syncUpstreamPlans();
+  // ===== 1.1 实时查询单个商品的库存（调上游 GET /product/rcs/plans） =====
+  // 返回 { availableStock: number, updatedAt: Date }
+  // availableStock 含义：0=无限库存 / >0=剩余可开数量
+  // 用途：购买页/下单前实时校验，避免本地快照过期导致超卖
+  async getRealtimeStock(productId: number) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true, upstreamPlanId: true, name: true },
+    });
+    if (!product) throw new NotFoundException('商品不存在');
+
+    try {
+      const { plans } = await this.rainyun.getRcsPlans();
+      const plan = plans.find((p: any) => Number(p.id) === Number(product.upstreamPlanId));
+      if (!plan) {
+        // 上游已下架 → 库存为 0（不可购买）
+        return {
+          availableStock: 0,
+          upstreamAvailable: false,
+          updatedAt: new Date(),
+        };
+      }
+      const stock = Number(plan.available_stock ?? 0);
+      // 同步更新本地快照（轻量 update，不影响其他字段）
+      await this.prisma.product.update({
+        where: { id: productId },
+        data: { availableStock: stock },
+      }).catch(() => {
+        // 更新本地快照失败不影响返回，仅记录
+      });
+      return {
+        availableStock: stock,
+        upstreamAvailable: true,
+        updatedAt: new Date(),
+      };
+    } catch (e: any) {
+      this.logger.warn(`实时查询商品 ${productId} 库存失败: ${e.message}`);
+      // 上游查询失败时返回本地快照（降级）
+      const local = await this.prisma.product.findUnique({
+        where: { id: productId },
+        select: { availableStock: true },
+      });
+      return {
+        availableStock: local?.availableStock ?? 0,
+        upstreamAvailable: true,
+        updatedAt: new Date(),
+        fallback: true,
+        error: e.message,
+      };
+    }
+  }
+
+  // ===== 1.2 批量实时查询商品库存（用于列表页一次性刷新多个商品） =====
+  // 返回 { [productId]: { availableStock, updatedAt } }
+  async batchRealtimeStock(productIds: number[]) {
+    if (!productIds.length) return {};
+    try {
+      const { plans } = await this.rainyun.getRcsPlans();
+      const planMap = new Map<number, number>();
+      for (const p of plans) {
+        planMap.set(Number(p.id), Number(p.available_stock ?? 0));
+      }
+      const products = await this.prisma.product.findMany({
+        where: { id: { in: productIds } },
+        select: { id: true, upstreamPlanId: true },
+      });
+      const result: Record<number, any> = {};
+      const updateOps: Promise<any>[] = [];
+      for (const p of products) {
+        const stock = planMap.get(Number(p.upstreamPlanId)) ?? 0;
+        result[p.id] = { availableStock: stock, updatedAt: new Date() };
+        // 批量更新本地快照
+        updateOps.push(
+          this.prisma.product.update({
+            where: { id: p.id },
+            data: { availableStock: stock },
+          }).catch(() => {}),
+        );
+      }
+      await Promise.all(updateOps);
+      return result;
+    } catch (e: any) {
+      this.logger.warn(`批量查询库存失败: ${e.message}`);
+      return {};
+    }
   }
 
   // 实际同步逻辑（可被 scheduledSyncUpstreamPlans / 手动 syncUpstreamPlans 调用）

@@ -11,6 +11,7 @@ import {
 import { PrismaService } from '../../common/prisma.service';
 import { RainyunService } from '../rainyun/rainyun.service';
 import { PaymentService } from '../payment/payment.service';
+import { ProductService } from '../product/product.service';
 import { CreateOrderDto } from './dto';
 import { ApiResponse, parsePaging } from '../../common/api-response';
 
@@ -23,6 +24,8 @@ export class OrderService {
     private rainyun: RainyunService,
     @Inject(forwardRef(() => PaymentService))
     private payment: PaymentService,
+    @Inject(forwardRef(() => ProductService))
+    private productService: ProductService,
   ) {}
 
   // 生成订单号：R + 时间戳 + 4 位随机数
@@ -64,6 +67,46 @@ export class OrderService {
 
     const quantity = dto.quantity ?? 1;
     if (quantity < 1) throw new BadRequestException('数量必须大于 0');
+
+    // ===== 库存实时校验 =====
+    // availableStock: 0=无限库存 / >0=剩余可开数量
+    // 仅当本地快照显示库存紧张（>0 且 <= 数量+5）时才调上游实时查询，
+    // 避免每次下单都调雨云 plans 接口（性能优化）
+    // 注：即使本地为 0（无限），也允许下单（雨云上游最终会校验）
+    const localStock = Number(product.availableStock ?? 0);
+    if (localStock > 0 && localStock < quantity) {
+      // 本地快照显示库存不足，直接拒绝（避免无效下单）
+      throw new BadRequestException(
+        `库存不足，当前剩余 ${localStock} 台，您选择了 ${quantity} 台`,
+      );
+    }
+    // 库存紧张时（<=10 台）实时校验上游，避免超卖
+    if (localStock > 0 && localStock <= 10) {
+      try {
+        const realtime: any = await this.productService.getRealtimeStock(product.id);
+        const upstreamStock = Number(realtime?.availableStock ?? 0);
+        if (realtime?.upstreamAvailable === false) {
+          throw new BadRequestException('商品已下架（上游套餐不存在）');
+        }
+        if (upstreamStock > 0 && upstreamStock < quantity) {
+          throw new BadRequestException(
+            `库存不足，雨云上游剩余 ${upstreamStock} 台，您选择了 ${quantity} 台`,
+          );
+        }
+        // 实时校验通过后，更新本地快照
+        if (upstreamStock !== localStock) {
+          await this.prisma.product.update({
+            where: { id: product.id },
+            data: { availableStock: upstreamStock },
+          }).catch(() => {});
+        }
+      } catch (e: any) {
+        // 实时校验失败时：若错误是业务异常（库存不足/下架），直接抛出
+        if (e instanceof BadRequestException) throw e;
+        // 网络/上游异常 → 仅记录日志，不阻断下单（让雨云最终校验）
+        this.logger.warn(`下单前实时校验库存失败（不阻断下单）: ${e.message}`);
+      }
+    }
 
     // ===== 价格计算（机器价 + IP 价） =====
     // product.prices: { "1": "95.22", "3": "271.53", ... } 已含优惠率+周期折扣
@@ -579,10 +622,22 @@ export class OrderService {
         },
       });
 
-      // 更新商品 salesCount
+      // 更新商品 salesCount + 扣减本地库存快照
+      // availableStock: 0=无限库存（不扣减）/ >0=剩余可开数量（扣减 order.quantity）
+      // 注：本地扣减是乐观估计，最终以雨云上游 available_stock 为准（定时同步任务会校正）
+      const currentProduct = await this.prisma.product.findUnique({
+        where: { id: order.productId },
+        select: { availableStock: true },
+      });
+      const currentStock = Number(currentProduct?.availableStock ?? 0);
+      const updateData: any = { salesCount: { increment: order.quantity } };
+      if (currentStock > 0) {
+        // 库存有限时扣减，最低扣到 0（不出现负数）
+        updateData.availableStock = Math.max(0, currentStock - order.quantity);
+      }
       await this.prisma.product.update({
         where: { id: order.productId },
-        data: { salesCount: { increment: order.quantity } },
+        data: updateData,
       });
 
       // 发通知
@@ -597,22 +652,43 @@ export class OrderService {
       this.logger.log(`订单 ${order.orderNo} 开通成功 UserProduct id=${userProduct.id}`);
       return { success: true, userProductId: userProduct.id };
     } catch (e: any) {
-      this.logger.error(`订单 ${order.orderNo} 开通失败: ${e.message}`);
+      // 提取雨云原始错误信息（可能是 BadRequestException 已包装过）
+      const rawErr = String(e?.message || '');
+      this.logger.error(`订单 ${order.orderNo} 开通失败: ${rawErr}`);
+
+      // 错误分类，给出更友好的中文提示
+      let userFriendlyMsg = rawErr;
+      if (/余额不足|余额|balance|insufficient|Money/i.test(rawErr)) {
+        userFriendlyMsg = '雨云账户余额不足，请联系管理员充值';
+      } else if (/库存不足|库存|stock|out of stock/i.test(rawErr)) {
+        userFriendlyMsg = '库存不足，该套餐已被抢光，请选择其他套餐或稍后再试';
+      } else if (/套餐不存在|plan.*not.*found|套餐已下架/i.test(rawErr)) {
+        userFriendlyMsg = '套餐已下架，请选择其他套餐';
+      } else if (/参数错误|invalid.*param|参数不/i.test(rawErr)) {
+        userFriendlyMsg = `参数错误：${rawErr}`;
+      } else if (/zone.*not.*found|区域不存在|区域不支持/i.test(rawErr)) {
+        userFriendlyMsg = '所选区域不可用，请选择其他区域';
+      } else if (/os.*not.*found|系统不存在|os_id/i.test(rawErr)) {
+        userFriendlyMsg = '所选操作系统不可用，请重新选择';
+      } else if (/ECONNREFUSED|ETIMEDOUT|ENOTFOUND|网络|连接/i.test(rawErr)) {
+        userFriendlyMsg = '网络异常，暂时无法连接上游服务器，请稍后重试';
+      }
+
       await this.prisma.order.update({
         where: { id: orderId },
         data: {
           status: 'FAILED',
-          openResult: `开通失败: ${e.message}`,
+          openResult: `开通失败: ${rawErr}`,
         },
       });
       await this.sendNotification(
         order.userId,
         'order',
         '订单开通失败',
-        `您的订单 ${order.orderNo} 开通失败：${e.message}。请联系客服或重试。`,
+        `您的订单 ${order.orderNo} 开通失败：${userFriendlyMsg}。可点击「重试开通」重新尝试，或联系客服处理。`,
         `/user/orders/${orderId}`,
       );
-      throw new BadRequestException(`开通失败: ${e.message}`);
+      throw new BadRequestException(`开通失败：${userFriendlyMsg}`);
     }
   }
 
