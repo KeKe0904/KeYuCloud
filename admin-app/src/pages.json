@@ -1,0 +1,85 @@
+{
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^ui-(.*)": "@/components/ui/$1.vue",
+      "^ky-(.*)": "@/components/ky/$1.vue"
+    }
+  },
+  "pages": [
+    { "path": "pages/admin/login", "style": { "navigationStyle": "custom", "disableScroll": true } },
+
+    { "path": "pages/dashboard/dashboard", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/users/users", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/tickets/tickets", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/finance/finance", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/profile/profile", "style": { "navigationStyle": "custom" } },
+
+    { "path": "pages/admin/user-detail", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/admin/order-detail", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/admin/ticket-detail", "style": { "navigationStyle": "custom" } },
+
+    { "path": "pages/admin/products", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/admin/orders", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/admin/user-products", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/admin/coupons", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/admin/announcements", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/admin/admins", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/admin/audit-logs", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/admin/smtp-templates", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+    { "path": "pages/admin/smtp-logs", "style": { "navigationStyle": "custom", "enablePullDownRefresh": true } },
+
+    { "path": "pages/admin/upstream", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/admin/smtp", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/admin/sms", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/admin/system", "style": { "navigationStyle": "custom" } }
+  ],
+  "tabBar": {
+    "color": "#71717a",
+    "selectedColor": "#18181b",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/dashboard/dashboard",
+        "text": "仪表盘",
+        "iconPath": "static/tab/house.png",
+        "selectedIconPath": "static/tab/house-active.png"
+      },
+      {
+        "pagePath": "pages/users/users",
+        "text": "用户",
+        "iconPath": "static/tab/user.png",
+        "selectedIconPath": "static/tab/user-active.png"
+      },
+      {
+        "pagePath": "pages/tickets/tickets",
+        "text": "工单",
+        "iconPath": "static/tab/message.png",
+        "selectedIconPath": "static/tab/message-active.png"
+      },
+      {
+        "pagePath": "pages/finance/finance",
+        "text": "财务",
+        "iconPath": "static/tab/box.png",
+        "selectedIconPath": "static/tab/box-active.png"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的",
+        "iconPath": "static/tab/grip.png",
+        "selectedIconPath": "static/tab/grip-active.png"
+      }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "柯羽云",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f4f4f5",
+    "backgroundTextStyle": "dark",
+    "app-plus": {
+      "titleNView": false
+    }
+  }
+}

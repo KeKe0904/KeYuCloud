@@ -1,0 +1,122 @@
+{
+  "name": "柯羽云管理后台",
+  "appid": "__UNI__KEYUYUN",
+  "description": "柯羽云管理后台移动端",
+  "versionName": "2.4.1",
+  "versionCode": "241",
+  "transformPx": false,
+  "app-plus": {
+    "usingComponents": true,
+    "nvueStyleCompiler": "uni-app",
+    "compilerVersion": 3,
+    "splashscreen": {
+      "alwaysShowBeforeRender": true,
+      "waiting": true,
+      "autoclose": true,
+      "delay": 0
+    },
+    "modules": {
+      "Push": {}
+    },
+    "distribute": {
+      "android": {
+        "permissions": [
+          "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
+          "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
+          "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>",
+          "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>"
+        ],
+        "minSdkVersion": 23,
+        "targetSdkVersion": 33,
+        "abiFilters": ["armeabi-v7a", "arm64-v8a", "x86"],
+        "icons": {
+          "android": {
+            "hdpi": "static/icons/72x72.png",
+            "xhdpi": "static/icons/96x96.png",
+            "xxhdpi": "static/icons/144x144.png",
+            "xxxhdpi": "static/icons/192x192.png"
+          }
+        }
+      },
+      "ios": {
+        "dSYMs": false
+      },
+      "sdkConfigs": {
+        "push": {}
+      },
+      "icons": {
+        "android": {
+          "hdpi": "static/icons/72x72.png",
+          "xhdpi": "static/icons/96x96.png",
+          "xxhdpi": "static/icons/144x144.png",
+          "xxxhdpi": "static/icons/192x192.png"
+        }
+      }
+    },
+    "statusbar": {
+      "immersed": "supportedDevice",
+      "style": "lightcontent",
+      "background": "#ffffff"
+    },
+    "safearea": {
+      "background": "#ffffff",
+      "bottom": {
+        "offset": "auto"
+      },
+      "left": { "offset": "auto" },
+      "right": { "offset": "auto" }
+    },
+    "launchWebviewPlus": {
+      "statusbar": {
+        "style": "dark",
+        "background": "#ffffff"
+      }
+    }
+  },
+  "quickapp": {},
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "minified": true,
+      "postcss": true
+    },
+    "usingComponents": true
+  },
+  "h5": {
+    "router": {
+      "mode": "history",
+      "base": "./"
+    },
+    "title": "柯羽云管理后台",
+    "template": "index.html",
+    "devServer": {
+      "port": 5173,
+      "https": false,
+      "proxy": {
+        "/api": {
+          "target": "http://localhost:3000",
+          "changeOrigin": true,
+          "secure": false
+        }
+      }
+    },
+    "async": {
+      "loading": "AsyncLoading",
+      "error": "AsyncError",
+      "delay": 0,
+      "timeout": 30000
+    }
+  },
+  "vueVersion": "3",
+  "networkTimeout": {
+    "request": 30000,
+    "uploadFile": 60000,
+    "downloadFile": 60000
+  },
+  "darkmode": true,
+  "themeLocation": "theme.json"
+}
