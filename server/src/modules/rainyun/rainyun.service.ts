@@ -801,9 +801,9 @@ export class RainyunService implements OnModuleInit {
     if (rcsRenewPriceMatch && method === 'GET') {
       const id = Number(rcsRenewPriceMatch[1]);
       const inst = this.mockState.rcsInstances.get(id);
-      if (!inst) throw new BadRequestException('RCS 不存在');
-      // Mock：返回各时长续费价格（基于 plan 价格 + 周期折扣）
-      const basePrice = inst.plan?.price || 10;
+      // Mock：实例不存在时也返回基于 id 的稳定价格
+      // （场景：LIVE 模式购买的实例，切换到 MOCK 后查询续费价格不应失败）
+      const basePrice = inst?.plan?.price || (10 + (id % 50));
       return {
         prices: {
           '1': basePrice,
