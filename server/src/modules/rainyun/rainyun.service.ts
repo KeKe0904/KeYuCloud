@@ -801,7 +801,9 @@ export class RainyunService implements OnModuleInit {
 
     // RCS actions (start/stop/restart/renew/...)
     // 注：renew 端点带尾部斜杠（/renew/），其他操作不带
-    const rcsActionMatch = path.match(/^\/product\/rcs\/(\d+)\/(start|stop|restart|renew|free|reset_password|reinstall)\/?$/);
+    // 注：雨云官方端点用连字符（reset-password/changeos），项目对外用下划线（reset_password）
+    //     MOCK 路由兼容两种写法
+    const rcsActionMatch = path.match(/^\/product\/rcs\/(\d+)\/(start|stop|restart|renew|free|reset_password|reset-password|reinstall|changeos)\/?$/);
     if (rcsActionMatch) {
       const id = Number(rcsActionMatch[1]);
       const action = rcsActionMatch[2];
@@ -821,7 +823,7 @@ export class RainyunService implements OnModuleInit {
         inst.expire_at = expire.toISOString();
         return { expire_at: inst.expire_at };
       }
-      if (action === 'reset_password' || action === 'reinstall') {
+      if (action === 'reset_password' || action === 'reset-password' || action === 'reinstall' || action === 'changeos') {
         return { task_id: ++this.mockState.nextTaskId };
       }
       return { success: true };
@@ -1268,11 +1270,20 @@ export class RainyunService implements OnModuleInit {
   // 注：雨云 API 的 renew 端点需要尾部斜杠（POST /product/rcs/{id}/renew/），
   //     其他操作（start/stop/reboot 等）不需要尾部斜杠。
   //     实测：不带尾部斜杠调用 renew 会返回 404 或 500 错误。
+  // 注：雨云官方端点用连字符（reset-password），项目对外暴露用下划线（reset_password），
+  //     这里做一次转换保持兼容。
   async rcsAction(id: number, action: string, body?: any, triggeredBy?: string) {
-    // renew 端点需要尾部斜杠
-    const path = action === 'renew'
-      ? `/product/rcs/${id}/renew/`
-      : `/product/rcs/${id}/${action}`;
+    // 外部 action 名 → 雨云官方端点名映射
+    const ACTION_PATH_MAP: Record<string, string> = {
+      renew: `/product/rcs/${id}/renew/`, // 续费需要尾部斜杠
+      reset_password: `/product/rcs/${id}/reset-password`, // 连字符
+      reboot: `/product/rcs/${id}/reboot`,
+      start: `/product/rcs/${id}/start`,
+      stop: `/product/rcs/${id}/stop`,
+      restart: `/product/rcs/${id}/restart`,
+      free: `/product/rcs/${id}/free`,
+    };
+    const path = ACTION_PATH_MAP[action] || `/product/rcs/${id}/${action}`;
     return this.request('POST', path, body, null, 'rcs', triggeredBy);
   }
 
@@ -1283,11 +1294,13 @@ export class RainyunService implements OnModuleInit {
     return this.request('GET', `/product/rcs/${id}/renew/`, null, null, 'rcs', triggeredBy);
   }
 
-  // 重装系统：雨云 POST /product/rcs/{id}/reinstall
-  // 请求体：{ os_id, password?, app_vars? }
+  // 重装系统：雨云 POST /product/rcs/{id}/changeos
+  // 官方文档端点为 changeos（非 reinstall），实测 /reinstall 返回 404
+  // 请求体：{ os_id, password?, app_vars?, reset_osd? }
   //   - os_id: 必填，操作系统 ID（来自 GET /product/rcs/os-templates）
   //   - password: 可选，不传则雨云自动随机生成
   //   - app_vars: 可选，预装软件数组 [{ app_id, vars }]，与创建 RCS 接口格式一致
+  //   - reset_osd: 可选，是否重置系统盘容量
   async reinstallRcs(
     id: number,
     osId: number,
@@ -1303,7 +1316,7 @@ export class RainyunService implements OnModuleInit {
         vars: a.vars || {},
       }));
     }
-    return this.request('POST', `/product/rcs/${id}/reinstall`, body, null, 'rcs', triggeredBy);
+    return this.request('POST', `/product/rcs/${id}/changeos`, body, null, 'rcs', triggeredBy);
   }
 
   // 获取 OS 模板列表（用于重装系统选择）
