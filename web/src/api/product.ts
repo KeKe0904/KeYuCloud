@@ -11,6 +11,7 @@ export interface Product {
   memory: number; // GB（业务层统一使用 GB）
   disk: number;
   bandwidth: number;
+  netIn?: number; // 上行带宽（Mbps）；旧数据可能为空，前端兜底用 bandwidth
   traffic: number;
   trafficType?: string; // unlimited / stacked
   markupRate: number;
