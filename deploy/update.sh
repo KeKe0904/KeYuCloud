@@ -42,7 +42,13 @@ BACKUP_DIR="${APP_DIR}/deploy/.backups"
 LOCK_FILE="${APP_DIR}/deploy/.update-lock"
 STATE_FILE="${APP_DIR}/deploy/.update-state"
 STEP_FILE="${APP_DIR}/deploy/.update-step"
-UPDATE_LOG="${LOG_DIR}/update-$(date +%Y%m%d-%H%M%S).log"
+# 自更新机制：如果 update.sh 自身在 git pull 后被更新，exec 重新执行时会继承原日志文件
+# 关键：不继承会导致日志断裂，无法通过 update-status API 看到完整日志
+if [[ -n "${_INHERIT_UPDATE_LOG:-}" && -f "${_INHERIT_UPDATE_LOG:-}" ]]; then
+  UPDATE_LOG="$_INHERIT_UPDATE_LOG"
+else
+  UPDATE_LOG="${LOG_DIR}/update-$(date +%Y%m%d-%H%M%S).log"
+fi
 
 # 是否已调度 finish 脚本（PM2 reload + 健康检查 + 清理）
 # 当此值为 1 时，on_exit 不会清理锁文件，由 finish 脚本负责清理
@@ -245,6 +251,15 @@ pull_latest_code() {
   step "步骤 3/9：拉取最新代码"
   save_step "3"
 
+  # 记录 update.sh 自身的 hash（用于 git pull 后的自更新检测）
+  # 关键：update.sh 已被 bash 加载到内存，git pull 拉取的新版本不会自动生效
+  #       若检测到自身变化，需 exec 重新执行以加载新逻辑
+  local _self_script_path="${BASH_SOURCE[0]}"
+  local _self_old_hash=""
+  if [[ -f "$_self_script_path" ]]; then
+    _self_old_hash=$(sha256sum "$_self_script_path" | awk '{print $1}')
+  fi
+
   cd "$APP_DIR"
 
   # 1. 检查工作区是否干净（.env / .deploy-meta.json 等本地文件除外）
@@ -399,6 +414,28 @@ pull_latest_code() {
 
   info "新 commit: $(git rev-parse HEAD)"
 
+  # 自更新检测：如果 update.sh 自身在 git pull 中被更新，exec 重新执行以加载新逻辑
+  # 关键：exec 会保留同一 PID，所以 LOCK_FILE 中的 pid 仍有效，不会死锁
+  #       通过 _INHERIT_UPDATE_LOG 保持日志连续性，通过 _SKIP_* 跳过已完成步骤
+  if [[ -f "$_self_script_path" ]] && [[ "${_UPDATE_SELF_RELOADED:-0}" != "1" ]]; then
+    local _self_new_hash
+    _self_new_hash=$(sha256sum "$_self_script_path" | awk '{print $1}')
+    if [[ -n "$_self_old_hash" && "$_self_old_hash" != "$_self_new_hash" ]]; then
+      info "检测到 update.sh 自身已更新，重新执行脚本以加载最新逻辑..."
+      info "继续日志文件: $UPDATE_LOG"
+      exec env \
+        _UPDATE_SELF_RELOADED=1 \
+        _INHERIT_UPDATE_LOG="$UPDATE_LOG" \
+        _SKIP_PREFLIGHT=1 \
+        _SKIP_BACKUP=1 \
+        _SKIP_PULL=1 \
+        APP_DIR="$APP_DIR" \
+        DEPLOY_NONINTERACTIVE="${DEPLOY_NONINTERACTIVE:-0}" \
+        FORCE_UPDATE_TASK_ID="${FORCE_UPDATE_TASK_ID:-}" \
+        bash "$_self_script_path" "$@"
+    fi
+  fi
+
   write_state "RUNNING" "代码已更新到 $(git rev-parse --short HEAD)" 3
   log "代码同步完成"
 }
@@ -413,17 +450,25 @@ install_dependencies() {
   # 后端：必须安装完整依赖（含 devDependencies）
   # 原因：步骤 6 npm run build 调用 nest build，需要 @nestjs/cli（在 devDependencies 中）
   #       步骤 5 prisma migrate 也依赖 prisma CLI（在 devDependencies 中）
+  # 关键：force-update 通过 PM2 触发，会继承 NODE_ENV=production，导致 npm ci 跳过 devDependencies
+  #       必须在此处显式重置 NODE_ENV，确保 devDependencies 被安装
   info "安装后端依赖（含 devDependencies，用于构建）..."
   cd "$APP_DIR/server"
-  if ! npm ci >>"$UPDATE_LOG" 2>&1; then
+  # 临时清除 NODE_ENV（仅影响本次 npm ci / npm install），避免跳过 devDependencies
+  local _saved_node_env="${NODE_ENV:-}"
+  unset NODE_ENV
+  if ! npm ci --include=dev >>"$UPDATE_LOG" 2>&1; then
     warn "npm ci 失败（可能 package-lock.json 不一致），回退到 npm install..."
-    if ! npm install >>"$UPDATE_LOG" 2>&1; then
+    if ! npm install --include=dev >>"$UPDATE_LOG" 2>&1; then
       err "后端依赖安装失败"
       err "  请检查 package-lock.json 是否与 package.json 一致"
       err "  或手动执行: cd $APP_DIR/server && npm install"
+      [[ -n "$_saved_node_env" ]] && export NODE_ENV="$_saved_node_env"
       exit 1
     fi
   fi
+  # 恢复 NODE_ENV（后续步骤如 prisma migrate 可能需要）
+  [[ -n "$_saved_node_env" ]] && export NODE_ENV="$_saved_node_env"
   info "后端依赖安装完成"
 
   # 重新生成 prisma client
@@ -440,13 +485,18 @@ install_dependencies() {
   if [[ -f "$APP_DIR/web/package.json" ]]; then
     info "安装前端依赖..."
     cd "$APP_DIR/web"
-    if ! npm ci >>"$UPDATE_LOG" 2>&1; then
+    # 前端构建也需要 devDependencies（vite/vue-cli 等构建工具在 devDependencies）
+    local _saved_node_env_web="${NODE_ENV:-}"
+    unset NODE_ENV
+    if ! npm ci --include=dev >>"$UPDATE_LOG" 2>&1; then
       warn "前端 npm ci 失败，回退到 npm install..."
-      if ! npm install >>"$UPDATE_LOG" 2>&1; then
+      if ! npm install --include=dev >>"$UPDATE_LOG" 2>&1; then
         err "前端依赖安装失败"
+        [[ -n "$_saved_node_env_web" ]] && export NODE_ENV="$_saved_node_env_web"
         exit 1
       fi
     fi
+    [[ -n "$_saved_node_env_web" ]] && export NODE_ENV="$_saved_node_env_web"
     info "前端依赖安装完成"
   fi
 
@@ -902,10 +952,27 @@ EOF
   # 写入初始状态
   write_state "RUNNING" "更新开始" 0
 
-  # 顺序执行 9 个步骤
-  preflight_check
-  backup_env_and_db
-  pull_latest_code
+  # 自更新机制：如果 _SKIP_* 标志已设置（exec 重新执行），跳过已完成步骤
+  # 关键：exec 重新执行时，preflight/backup/pull 已完成，直接从 install_dependencies 开始
+  if [[ "${_SKIP_PREFLIGHT:-0}" != "1" ]]; then
+    preflight_check
+  else
+    info "跳过前置检查（自更新重载）"
+  fi
+
+  if [[ "${_SKIP_BACKUP:-0}" != "1" ]]; then
+    backup_env_and_db
+  else
+    info "跳过备份步骤（自更新重载）"
+  fi
+
+  if [[ "${_SKIP_PULL:-0}" != "1" ]]; then
+    pull_latest_code
+  else
+    info "跳过代码拉取（自更新重载）"
+  fi
+
+  # 后续步骤始终执行（依赖可能变化，需重新安装/构建/重启）
   install_dependencies
   migrate_database
   build_app
