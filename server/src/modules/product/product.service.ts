@@ -385,26 +385,26 @@ export class ProductService {
     return list.map((p) => this.formatProduct(p));
   }
 
-  // ===== 推断流量类型：基于 zone / zoneName / 套餐名 =====
-  // 雨云官方说明：所有 RCS 区域都是无限流量，其中宁波区域为流量叠加型（每月不清零无限叠加）
+  // ===== 流量类型推断：基于上游 charge_type 字段 =====
   // 业务层只保留两种流量类型：
-  //   - stacked：流量叠加型（宁波区域，每月不清零无限叠加）
-  //   - unlimited：无限流量型（其它所有区域）
+  //   - stacked：流量叠加型（charge_type=package_traffic，每月基础流量用完后可叠加购买）
+  //   - unlimited：无限流量型（charge_type=package 或 package_old，不限流量）
+  //
+  // 数据来源：雨云 /product/rcs/plans 实测（2026-07）
+  //   - package(237 个)：不限流量 → traffic_base_gb=0, traffic_price=null
+  //   - package_traffic(187 个)：流量叠加型 → traffic_base_gb>0, traffic_price 非空
+  //   - package_old(19 个)：不限流量（旧版） → traffic_base_gb=0, traffic_price=null
+  //
+  // 重要：流量类型由 charge_type 决定，与 region 无关！
+  //   package_traffic 分布在 11 个区域（cn-hk1:59, cn-sy1:28, cn-nb1:18, jp-tk1:14, ...）
+  //   cn-nb1 区域也有 21 个 package 套餐（无限流量型）
+  //   旧逻辑基于 zone 关键字判断（仅识别宁波）是错误的
   private inferTrafficType(plan: any): string {
-    const zone = String(plan.zone || plan.region || '').toLowerCase();
-    const zoneName = String(plan.zone_name || plan.zoneName || plan.chinese || '').toLowerCase();
-    const name = String(plan.name || plan.plan_name || '').toLowerCase();
-
-    // 关键词命中：流量叠加型（仅宁波区域）
-    if (
-      zone.includes('nb') || // cn-nb1 / CN-NB
-      zoneName.includes('宁波') ||
-      name.includes('叠加')
-    ) {
+    const chargeType = String(plan.charge_type ?? plan.chargeType ?? '').toLowerCase();
+    if (chargeType === 'package_traffic') {
       return 'stacked';
     }
-
-    // 其它所有区域（含香港、美国、日本、宿迁、十堰、襄阳、重庆、深圳、陕西等）→ 无限流量
+    // package / package_old / 其他未知值 → 无限流量
     return 'unlimited';
   }
 

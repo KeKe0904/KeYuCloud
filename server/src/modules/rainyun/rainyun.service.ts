@@ -512,6 +512,20 @@ export class RainyunService implements OnModuleInit {
     const friendlyZoneName = RainyunService.REGION_NAME_MAP[region] ||
       RainyunService.REGION_NAME_MAP[region.toLowerCase()] || region;
     const diskSize = p.disk_size ?? p.DiskSize ?? {};
+    // 系统盘容量：雨云 disk_size 可能含多种盘型键，按优先级取系统盘容量
+    // 实测分布（2026-07）：
+    //   - ssd(283 个) / cloud-hdd,cloud-ssd,ssd(72 个) / cloud-hdd,cloud-ssd(68 个) / chdd(20 个)
+    // 优先级：ssd > cloud-ssd > chdd > hdd > cloud-hdd > 第一个值（兜底）
+    // 注：MOCK 模式下若 disk_size 是数字（如 {disk: 20}），则 diskSize 为 {} → 取 p.disk 兜底
+    const diskSizeValue =
+      diskSize.ssd ?? diskSize.Ssd ??
+      diskSize['cloud-ssd'] ?? diskSize.CloudSsd ??
+      diskSize.chdd ?? diskSize.Chdd ??
+      diskSize.hdd ?? diskSize.Hdd ??
+      diskSize['cloud-hdd'] ?? diskSize.CloudHdd ??
+      (typeof diskSize === 'object' && Object.keys(diskSize).length > 0
+        ? Object.values(diskSize)[0]
+        : (p.disk ?? p.Disk ?? 0));
     // 网络模式：normal=独立IP / nat=NAT共享IP
     // 雨云官方 API 无 net_mode 字段，根据 ip_selling 推断：
     //   - ip_selling 为 null/undefined/空数组 → NAT 共享 IP（无法购买独立 IP）
@@ -547,7 +561,7 @@ export class RainyunService implements OnModuleInit {
       is_selling: p.is_selling ?? p.IsSelling ?? true,
       cpu: p.cpu ?? p.Cpu ?? 0,
       memory: p.memory ?? p.Memory ?? 0,
-      disk: diskSize.ssd ?? diskSize.Ssd ?? 0,
+      disk: diskSizeValue,
       bandwidth: p.net_out ?? p.NetOut ?? 0,
       net_in: p.net_in ?? p.NetIn ?? 0,
       net_out: p.net_out ?? p.NetOut ?? 0,
