@@ -94,8 +94,9 @@ model Product {
   cpu             Int?
   memory          Int?                                                       // GB（业务层统一使用 GB，雨云上游返回 MB 时由同步逻辑换算）
   disk            Int?                                                       // GB
-  bandwidth       Int?                                                       // Mbps
-  traffic         Int?                                                       // GB
+  bandwidth       Int?                                                       // Mbps（下行带宽，对应雨云 net_out）
+  netIn           Int?                                                       // Mbps（上行带宽，对应雨云 net_in；为兼容旧数据，null 表示与 bandwidth 相同）
+  traffic         Int?                                                       // GB（每月基础流量；0=不限流量，对应 charge_type=package）
   trafficType     String?  @default("unlimited")                              // 流量类型：unlimited=无限流量（默认）/ stacked=叠加流量（宁波区域不清零）
   upstreamPrices  String?                                                    // JSON: {"1":10,"3":28,"6":55,"12":100} 上游机器价快照（不含 IP）
   markupRate      Decimal  @default(-0.10) @db.Decimal(4, 3)                 // 优惠率：负=优惠(-0.10=9折) / 0=原价 / 正=加价

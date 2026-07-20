@@ -366,6 +366,8 @@ export class ProductService {
             memory: this.normalizeMemory(plan.memory),
             disk: plan.disk,
             bandwidth: plan.bandwidth,
+            // 上行带宽（雨云 net_in 字段）；旧数据为 null，前端兜底用 bandwidth
+            netIn: plan.net_in ?? plan.bandwidth ?? 0,
             traffic: plan.traffic,
             trafficType: this.inferTrafficType(plan),
             upstreamPrices: upstreamPricesJson,
@@ -413,6 +415,8 @@ export class ProductService {
               memory: this.normalizeMemory(plan.memory),
               disk: plan.disk,
               bandwidth: plan.bandwidth,
+              // 上行带宽（雨云 net_in 字段）
+              netIn: plan.net_in ?? plan.bandwidth ?? 0,
               traffic: plan.traffic,
               trafficType: this.inferTrafficType(plan),
               upstreamPrices: upstreamPricesJson,

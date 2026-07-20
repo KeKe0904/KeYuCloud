@@ -580,11 +580,18 @@ export class RainyunService implements OnModuleInit {
       cpu: p.cpu ?? p.Cpu ?? 0,
       memory: p.memory ?? p.Memory ?? 0,
       disk: diskSizeValue,
+      // 雨云 net_in=上行带宽 / net_out=下行带宽（Mbps）
+      // 业务层 bandwidth 字段对应 net_out（下行），新增 net_in 字段保留上行
       bandwidth: p.net_out ?? p.NetOut ?? 0,
       net_in: p.net_in ?? p.NetIn ?? 0,
       net_out: p.net_out ?? p.NetOut ?? 0,
+      // 流量：traffic_base_gb 字段单位为 GB（每月基础流量）
+      // charge_type=package → traffic_base_gb=0（不限流量）
+      // charge_type=package_traffic → traffic_base_gb>0（流量叠加型）
       traffic: p.traffic_base_gb ?? p.TrafficBaseGb ?? 0,
       traffic_base_gb: p.traffic_base_gb ?? p.TrafficBaseGb ?? 0,
+      // 流量价格（仅 package_traffic 类型有值，单位：元/GB）
+      traffic_price: p.traffic_price ?? p.TrafficPrice ?? null,
       price: monthPrice,
       prices,
       // 网络模式：normal=独立IP / nat=NAT共享IP（用于前端判断是否可购买独立IP）
