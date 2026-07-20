@@ -612,9 +612,13 @@ async function onRenew() {
     authStore.fetchProfile().catch(() => {});
     await loadDetail();
   } catch (e: any) {
-    // 检测错误信息中是否含"余额"关键词，若是则弹出余额不足弹窗
+    // 提取后端返回的错误码和消息（http 拦截器已把 code/message 挂到 error 上）
+    const errCode = String(e?.code || e?.response?.data?.code || '');
     const errMsg = String(e?.message || e?.response?.data?.message || '');
-    if (errMsg.includes('余额') || errMsg.includes('balance') || errMsg.includes(' insufficient')) {
+    // 余额不足错误：弹出余额不足弹窗
+    if (errCode === 'INSUFFICIENT_BALANCE' ||
+        errMsg.includes('余额不足') || errMsg.includes('余额') ||
+        errMsg.includes('balance') || errMsg.includes('insufficient')) {
       try {
         const profileRes = await authApi.profile();
         if (profileRes?.data?.balance != null) {
@@ -628,7 +632,7 @@ async function onRenew() {
       }
       showInsufficientBalanceDialog();
     }
-    // 其他错误已由拦截器统一提示
+    // 其他错误已由 http 拦截器统一弹消息提示，这里无需重复处理
   } finally {
     renewForm.loading = false;
   }

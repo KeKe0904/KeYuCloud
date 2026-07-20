@@ -254,12 +254,32 @@ export class UserProductService {
     }
 
     const triggeredBy = `user_id:${userId}`;
-    const res: any = await this.rainyun.rcsAction(
-      up.upstreamRcsId,
-      'renew',
-      { duration: months },
-      triggeredBy,
-    );
+    let res: any;
+    try {
+      res = await this.rainyun.rcsAction(
+        up.upstreamRcsId,
+        'renew',
+        { duration: months },
+        triggeredBy,
+      );
+    } catch (e: any) {
+      // 捕获雨云续费错误，转为更友好的中文提示
+      const raw = String(e?.message || '');
+      // 余额不足类错误
+      if (/余额不足|余额|balance|insufficient|不够|Money/i.test(raw)) {
+        throw new BizError('雨云账户余额不足，请先充值后重试', 'INSUFFICIENT_BALANCE');
+      }
+      // 产品不存在类错误
+      if (/不存在|not found|no.*rcs|找不到/i.test(raw)) {
+        throw new BizError(`续费失败：上游 RCS 实例 #${up.upstreamRcsId} 不存在或已释放`, 'PRODUCT_NOT_FOUND');
+      }
+      // 参数错误
+      if (/参数|duration|时长/i.test(raw)) {
+        throw new BizError(`续费失败：参数错误（${raw}）`, 'BAD_PARAM');
+      }
+      // 其他错误：保留原始信息
+      throw new BizError(`续费失败：${raw}`, 'RENEW_FAILED');
+    }
 
     // 计算新的到期时间
     let newExpire: Date;

@@ -34,7 +34,12 @@ http.interceptors.response.use(
     if (res && typeof res === 'object' && 'success' in res) {
       if (!res.success) {
         ElMessage.error(res.message || '请求失败');
-        return Promise.reject(new Error(res.message || '请求失败'));
+        // reject 时携带 code/message/details，便于业务代码判断错误类型
+        const err = new Error(res.message || '请求失败') as any;
+        err.code = res.code;
+        err.details = res.details;
+        err.handled = true; // 标记已被拦截器处理（已弹消息）
+        return Promise.reject(err);
       }
       return res;
     }
@@ -44,6 +49,10 @@ http.interceptors.response.use(
     if (error.response) {
       const { status, data } = error.response;
       const message = data?.message || `请求失败 (${status})`;
+      // 把后端 code/details 附加到 error 对象
+      error.code = data?.code;
+      error.details = data?.details;
+      error.handled = true;
 
       if (status === 401) {
         // 未授权，清除 token 跳登录

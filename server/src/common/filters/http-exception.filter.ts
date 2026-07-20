@@ -67,7 +67,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
       // 防止攻击者通过 BadRequestException 透传获取上游 API 结构、字段名、堆栈摘要
       // 详细错误已通过 logger 记录到服务端日志，可凭 timestamp/path 排查
       const rawMsg = String(message || '');
-      if (/雨云|rainyun|Prisma|prisma|stack|at\s\/|node_modules|axios|ECONNREFUSED|ETIMEDout|getaddrinfo|ENOTFOUND/i.test(rawMsg)) {
+      // 业务关键词白名单：含这些关键词的错误属于业务可读错误，直接透传给用户
+      // （例：余额不足、参数错误、产品不存在、库存不足 等）
+      const isBusinessError = /余额不足|余额|账户余额|参数错误|参数不|库存不足|已到期|未到期|未开通|已开通|不存在|无权|超过限制|频率过快|签名|验证码|手机号|邮箱|用户名|密码|工单|续费|开通|重装|关机|开机|重启/.test(rawMsg);
+      if (!isBusinessError && /雨云|rainyun|Prisma|prisma|stack|at\s\/|node_modules|axios|ECONNREFUSED|ETIMEDout|getaddrinfo|ENOTFOUND/i.test(rawMsg)) {
         // 保留业务前缀（如"开通失败："、"创建工单失败："），后缀替换为通用提示
         const prefixMatch = rawMsg.match(/^(开通失败|创建.*失败|.*失败|.*错误)[：:]/);
         message = prefixMatch ? `${prefixMatch[1]}，请稍后重试或联系客服` : '操作失败，请稍后重试或联系客服';

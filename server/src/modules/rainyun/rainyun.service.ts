@@ -339,15 +339,33 @@ export class RainyunService implements OnModuleInit {
       // 雨云返回结构: { code: 200, data, message }
       const rdata: any = res.data;
       if (rdata && typeof rdata.code === 'number' && rdata.code !== 200) {
+        // 雨云业务错误：保留原始 message（含"余额不足"等业务关键词）
         throw new BadRequestException(rdata.message || `雨云 API 错误: ${rdata.code}`);
       }
       return rdata?.data ?? rdata;
     } catch (err: any) {
       const status = err.response?.status || 500;
-      const errMsg = err.response?.data?.message || err.response?.data?.msg || err.message;
-      await this.logUpstream(method, url, body, status, err.response?.data, Date.now() - startedAt, err.code, errMsg, category, triggeredBy);
+      // 优先从雨云响应 body 提取 message（雨云错误结构: {code:500, message:"余额不足"}）
+      const rainyunMsg =
+        err.response?.data?.message ||
+        err.response?.data?.msg ||
+        null;
+      const errMsg = rainyunMsg || err.message;
+      const errCode = err.response?.data?.code || err.code;
+      await this.logUpstream(method, url, body, status, err.response?.data, Date.now() - startedAt, errCode, errMsg, category, triggeredBy);
+
+      // 已是 BadRequestException（含雨云业务错误）直接抛出
       if (err instanceof BadRequestException) throw err;
-      throw new BadRequestException(`雨云 API 调用失败: ${errMsg}`);
+
+      // 网络类错误：补充中文说明 + 原始错误信息
+      const netErrMap: Record<string, string> = {
+        ECONNREFUSED: '无法连接到雨云服务器',
+        ETIMEDOUT: '连接雨云服务器超时',
+        ENOTFOUND: '无法解析雨云服务器域名',
+        ECONNABORTED: '请求被中断',
+      };
+      const netHint = netErrMap[err.code] ? `${netErrMap[err.code]}（${err.code}）` : '';
+      throw new BadRequestException(`雨云 API 调用失败${netHint ? '：' + netHint : ''}${rainyunMsg ? '：' + rainyunMsg : ''}`);
     }
   }
 
