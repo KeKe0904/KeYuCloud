@@ -615,7 +615,37 @@ ensure_nginx_config() {
     return 0
   fi
 
-  # 检查配置文件是否存在且包含正确的 root 指令
+  # ---------- 1. 禁用 Nginx 默认站点 ----------
+  # 关键：Debian/Ubuntu 默认在 /etc/nginx/sites-enabled/default 启用默认 server 块，
+  #       该 server 监听 80 端口并指向 /var/www/html，会抢占 80 端口的默认请求，
+  #       导致我们的 /etc/nginx/conf.d/rainyun-reseller.conf 不生效，
+  #       访问根路径返回 "Welcome to nginx!" 欢迎页，访问 /admin/* 返回 404。
+  # 本步骤每次都执行（幂等），确保默认站点不会抢占我们的配置。
+  local default_site_link="/etc/nginx/sites-enabled/default"
+  local default_site_file="/etc/nginx/sites-available/default"
+  local nginx_conf_dir="/etc/nginx/conf.d"
+  local default_disabled_marker=0
+
+  if [[ -L "$default_site_link" || -f "$default_site_link" ]]; then
+    warn "检测到 Nginx 默认站点：$default_site_link，将禁用以避免抢占 80 端口"
+    rm -f "$default_site_link" >>"$UPDATE_LOG" 2>&1 && info "已禁用默认站点（删除 $default_site_link）"
+    default_disabled_marker=1
+  fi
+
+  # 扫描 conf.d 目录，禁用任何包含 "listen 80 default_server" 但不是我们配置的文件
+  if [[ -d "$nginx_conf_dir" ]]; then
+    for f in "$nginx_conf_dir"/*.conf; do
+      [[ -f "$f" ]] || continue
+      [[ "$f" == "$nginx_conf" ]] && continue
+      if grep -qE 'listen\s+80\s+default_server' "$f" 2>/dev/null; then
+        warn "检测到其他配置抢占 80 默认端口：$f，将禁用"
+        mv "$f" "${f}.disabled" >>"$UPDATE_LOG" 2>&1 && info "已禁用：$f → ${f}.disabled"
+        default_disabled_marker=1
+      fi
+    done
+  fi
+
+  # ---------- 2. 检查我们的配置文件 ----------
   local need_regen=0
   if [[ ! -f "$nginx_conf" ]]; then
     warn "Nginx 配置文件不存在：$nginx_conf，将重新生成"
@@ -629,6 +659,15 @@ ensure_nginx_config() {
   elif ! grep -q "proxy_pass http://127.0.0.1:3001" "$nginx_conf" 2>/dev/null; then
     warn "Nginx 配置缺少 API 反向代理，将重新生成"
     need_regen=1
+  elif ! grep -qE 'listen\s+80\s+default_server' "$nginx_conf" 2>/dev/null; then
+    warn "Nginx 配置缺少 default_server 标志，将重新生成（确保抢占 80 端口）"
+    need_regen=1
+  fi
+
+  # 如果禁用了默认站点但我们的配置已存在且正确，仍需 reload 让变更生效
+  if [[ "$need_regen" -eq 0 && "$default_disabled_marker" -eq 1 ]]; then
+    info "默认站点已禁用，需要 reload Nginx 让配置生效"
+    need_regen=2  # 特殊标记：仅 reload，不重新生成配置
   fi
 
   if [[ "$need_regen" -eq 0 ]]; then
@@ -636,14 +675,18 @@ ensure_nginx_config() {
     return 0
   fi
 
-  info "生成 Nginx 配置：$nginx_conf"
-  cat > "$nginx_conf" <<EOF
+  # ---------- 3. 生成配置（仅当 need_regen == 1） ----------
+  if [[ "$need_regen" -eq 1 ]]; then
+    info "生成 Nginx 配置：$nginx_conf"
+    cat > "$nginx_conf" <<EOF
 # 雨云服务器分销平台 Nginx 配置（由 update.sh 自动生成）
 # 端口策略：
-#   - 前端 HTTP：80（主入口，提供前端静态文件 + API 反代）
+#   - 前端 HTTP：80（主入口，default_server，提供前端静态文件 + API 反代）
 #   - 后端 NestJS：3001（仅 127.0.0.1，由本配置反代 /api/）
 server {
-    listen 80;
+    # default_server: 抢占 80 端口的默认请求，避免被其他 server 块抢占
+    listen 80 default_server;
+    listen [::]:80 default_server;
     server_name _;
 
     # 前端静态资源
@@ -654,7 +697,7 @@ server {
     client_max_body_size 10m;
 
     # SPA 路由回退（关键：所有未匹配静态文件的路径都回退到 index.html，
-    # 由 Vue Router 处理前端路由，如 /admin/environment）
+    # 由 Vue Router 处理前端路由，如 /admin/environment、/admin/version-update）
     location / {
         try_files \$uri \$uri/ /index.html;
     }
@@ -677,8 +720,9 @@ server {
     }
 }
 EOF
+  fi
 
-  # 测试配置并 reload
+  # ---------- 4. 测试配置并 reload ----------
   if nginx -t >>"$UPDATE_LOG" 2>&1; then
     info "Nginx 配置测试通过"
     if systemctl reload nginx >>"$UPDATE_LOG" 2>&1; then
