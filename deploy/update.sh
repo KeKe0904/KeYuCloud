@@ -592,6 +592,114 @@ build_app() {
 }
 
 # ============================================================================
+# Nginx 配置检查与自动修复
+# ----------------------------------------------------------------------------
+# 问题：服务器重启或 Nginx 升级后，/etc/nginx/conf.d/rainyun-reseller.conf
+#       可能丢失或被覆盖，导致访问前端页面返回 Nginx 默认欢迎页或 404。
+#
+# 本函数在每次部署时检查配置文件是否存在且包含正确的 root 指令，
+# 若不存在或配置错误，自动重新生成最小可用配置并 reload nginx。
+# ============================================================================
+ensure_nginx_config() {
+  if ! has_cmd nginx; then
+    warn "Nginx 未安装，跳过配置检查"
+    return 0
+  fi
+
+  local nginx_conf="/etc/nginx/conf.d/rainyun-reseller.conf"
+  local web_dist_dir="$APP_DIR/web/dist"
+
+  # 检查前端构建产物是否存在
+  if [[ ! -f "$web_dist_dir/index.html" ]]; then
+    warn "前端构建产物不存在：$web_dist_dir/index.html，跳过 Nginx 配置"
+    return 0
+  fi
+
+  # 检查配置文件是否存在且包含正确的 root 指令
+  local need_regen=0
+  if [[ ! -f "$nginx_conf" ]]; then
+    warn "Nginx 配置文件不存在：$nginx_conf，将重新生成"
+    need_regen=1
+  elif ! grep -q "root $web_dist_dir" "$nginx_conf" 2>/dev/null; then
+    warn "Nginx 配置 root 指令不正确，将重新生成"
+    need_regen=1
+  elif ! grep -q "try_files" "$nginx_conf" 2>/dev/null; then
+    warn "Nginx 配置缺少 SPA 路由回退（try_files），将重新生成"
+    need_regen=1
+  elif ! grep -q "proxy_pass http://127.0.0.1:3001" "$nginx_conf" 2>/dev/null; then
+    warn "Nginx 配置缺少 API 反向代理，将重新生成"
+    need_regen=1
+  fi
+
+  if [[ "$need_regen" -eq 0 ]]; then
+    info "Nginx 配置检查通过"
+    return 0
+  fi
+
+  info "生成 Nginx 配置：$nginx_conf"
+  cat > "$nginx_conf" <<EOF
+# 雨云服务器分销平台 Nginx 配置（由 update.sh 自动生成）
+# 端口策略：
+#   - 前端 HTTP：80（主入口，提供前端静态文件 + API 反代）
+#   - 后端 NestJS：3001（仅 127.0.0.1，由本配置反代 /api/）
+server {
+    listen 80;
+    server_name _;
+
+    # 前端静态资源
+    root $web_dist_dir;
+    index index.html;
+
+    # 上传文件大小限制
+    client_max_body_size 10m;
+
+    # SPA 路由回退（关键：所有未匹配静态文件的路径都回退到 index.html，
+    # 由 Vue Router 处理前端路由，如 /admin/environment）
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    # API 反向代理 → 后端 3001
+    location /api/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 60s;
+    }
+
+    # 静态资源缓存
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
+}
+EOF
+
+  # 测试配置并 reload
+  if nginx -t >>"$UPDATE_LOG" 2>&1; then
+    info "Nginx 配置测试通过"
+    if systemctl reload nginx >>"$UPDATE_LOG" 2>&1; then
+      info "Nginx 已 reload，前端可通过 80 端口访问"
+    else
+      # 某些环境可能没有 systemd，尝试直接 reload
+      if nginx -s reload >>"$UPDATE_LOG" 2>&1; then
+        info "Nginx 已 reload（直接信号）"
+      else
+        warn "Nginx reload 失败，请手动执行：systemctl reload nginx"
+      fi
+    fi
+  else
+    err "Nginx 配置测试失败，请检查 $nginx_conf"
+    # 删除错误的配置文件，避免影响默认 Nginx
+    rm -f "$nginx_conf"
+    return 1
+  fi
+}
+
+# ============================================================================
 # 步骤 7：重启服务
 # ----------------------------------------------------------------------------
 # 关键设计：当 PM2 已管理 rainyun-api 时，update.sh 不能直接执行 pm2 reload。
@@ -609,6 +717,9 @@ build_app() {
 restart_services() {
   step "步骤 7/9：重启服务"
   save_step "7"
+
+  # 先确保 Nginx 配置存在且正确（解决配置丢失导致前端 404 的问题）
+  ensure_nginx_config
 
   # 检查后端是否已通过 PM2 管理
   local pm2_exists

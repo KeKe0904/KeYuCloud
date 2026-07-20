@@ -100,6 +100,7 @@ const routeLabelMap: Record<string, string> = {
   announcements: '公告管理',
   system: '系统配置',
   environment: '环境依赖',
+  'version-update': '版本更新',
   admins: '管理员',
   profile: '个人资料',
   'audit-logs': '审计日志',
@@ -228,6 +229,7 @@ const breadcrumbs = computed<{ label: string; path?: string }[]>(() => {
             </template>
             <el-menu-item index="/admin/system">系统配置</el-menu-item>
             <el-menu-item index="/admin/environment">环境依赖</el-menu-item>
+            <el-menu-item index="/admin/version-update">版本更新</el-menu-item>
             <el-menu-item index="/admin/admins">管理员</el-menu-item>
             <el-menu-item index="/admin/profile">个人资料</el-menu-item>
             <el-menu-item index="/admin/audit-logs">审计日志</el-menu-item>
@@ -332,6 +334,7 @@ const breadcrumbs = computed<{ label: string; path?: string }[]>(() => {
             </template>
             <el-menu-item index="/admin/system">系统配置</el-menu-item>
             <el-menu-item index="/admin/environment">环境依赖</el-menu-item>
+            <el-menu-item index="/admin/version-update">版本更新</el-menu-item>
             <el-menu-item index="/admin/admins">管理员</el-menu-item>
             <el-menu-item index="/admin/profile">个人资料</el-menu-item>
             <el-menu-item index="/admin/audit-logs">审计日志</el-menu-item>
