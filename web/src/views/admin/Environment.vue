@@ -84,6 +84,34 @@ function formatPm2Uptime(uptime: number): string {
   return `${mins}分`;
 }
 
+// ============ 类型安全格式化函数 ============
+// API 返回的某些字段是字符串（如 loadavg: ["0.01","0.02","0.01"]），
+// 直接调用 .toFixed() 会抛 TypeError 导致整个页面渲染崩溃（白屏）。
+// 这些辅助函数统一做 Number() 转换后再格式化。
+
+// 格式化负载值（loadavg 元素可能是字符串）
+function fmtLoad(val: any): string {
+  const n = Number(val);
+  return isNaN(n) ? '-' : n.toFixed(2);
+}
+
+// 格式化 CPU 占比（pm2 进程的 cpu 字段可能是字符串）
+function fmtCpu(val: any): string {
+  const n = Number(val);
+  return isNaN(n) ? '-' : n.toFixed(1);
+}
+
+// 提取百分比数值（API 返回 "29.9%" 形式的字符串，去掉 % 后返回数字）
+function pctNum(val: any): number {
+  const n = parseFloat(String(val));
+  return isNaN(n) ? 0 : n;
+}
+
+// 格式化百分比显示（API 已带 %，直接使用；若用于 CSS width 则取数值）
+function pctWidth(val: any): string {
+  return pctNum(val) + '%';
+}
+
 // 健康度评级：综合内存、磁盘、负载评估系统健康度
 const healthScore = computed(() => {
   if (!envInfo.value) return null;
@@ -102,10 +130,12 @@ const healthScore = computed(() => {
       else if (diskPct > 70) score -= 5;
     }
   }
-  // 1 分钟负载 > CPU 核数 = 过载
-  const load1 = envInfo.value.cpu.loadavg[0];
-  if (load1 > envInfo.value.cpu.cores * 2) score -= 20;
-  else if (load1 > envInfo.value.cpu.cores) score -= 10;
+  // 1 分钟负载 > CPU 核数 = 过载（API 返回字符串，需转数字）
+  const load1 = Number(envInfo.value.cpu.loadavg[0]);
+  if (!isNaN(load1)) {
+    if (load1 > envInfo.value.cpu.cores * 2) score -= 20;
+    else if (load1 > envInfo.value.cpu.cores) score -= 10;
+  }
   // PM2 进程异常
   const deadProc = envInfo.value.pm2Processes.filter(p => p.status !== 'online').length;
   if (deadProc > 0) score -= deadProc * 10;
@@ -294,10 +324,10 @@ onBeforeUnmount(() => {
               <div class="metric-bar">
                 <div
                   class="metric-bar-fill"
-                  :style="{ width: envInfo.memory.usePercent + '%', background: parseFloat(envInfo.memory.usePercent) > 85 ? 'var(--danger)' : 'var(--gold-500)' }"
+                  :style="{ width: pctWidth(envInfo.memory.usePercent), background: pctNum(envInfo.memory.usePercent) > 85 ? 'var(--danger)' : 'var(--gold-500)' }"
                 ></div>
               </div>
-              <div class="metric-tip">{{ envInfo.memory.usePercent }}% 已使用（剩 {{ envInfo.memory.free }}）</div>
+              <div class="metric-tip">{{ envInfo.memory.usePercent }} 已使用（剩 {{ envInfo.memory.free }}）</div>
             </div>
           </div>
 
@@ -309,10 +339,10 @@ onBeforeUnmount(() => {
               <div class="metric-bar">
                 <div
                   class="metric-bar-fill"
-                  :style="{ width: envInfo.diskUsage.usePercent + '%', background: parseInt(envInfo.diskUsage.usePercent) > 85 ? 'var(--danger)' : 'var(--gold-500)' }"
+                  :style="{ width: pctWidth(envInfo.diskUsage.usePercent), background: pctNum(envInfo.diskUsage.usePercent) > 85 ? 'var(--danger)' : 'var(--gold-500)' }"
                 ></div>
               </div>
-              <div class="metric-tip">{{ envInfo.diskUsage.usePercent }}% 已使用（剩 {{ envInfo.diskUsage.avail }}）</div>
+              <div class="metric-tip">{{ envInfo.diskUsage.usePercent }} 已使用（剩 {{ envInfo.diskUsage.avail }}）</div>
             </div>
           </div>
 
@@ -320,7 +350,7 @@ onBeforeUnmount(() => {
             <div class="metric-icon cpu"><Cpu /></div>
             <div class="metric-content">
               <div class="metric-label">CPU 负载（1m）</div>
-              <div class="metric-value">{{ envInfo.cpu.loadavg[0]?.toFixed(2) }}</div>
+              <div class="metric-value">{{ fmtLoad(envInfo.cpu.loadavg[0]) }}</div>
               <div class="metric-tip">{{ envInfo.cpu.cores }} 核 / {{ envInfo.cpu.model }}</div>
             </div>
           </div>
@@ -517,7 +547,7 @@ onBeforeUnmount(() => {
             </el-table-column>
             <el-table-column label="CPU" width="90">
               <template #default="{ row }">
-                <span :class="{ 'text-danger': row.cpu > 80 }">{{ row.cpu?.toFixed(1) }}%</span>
+                <span :class="{ 'text-danger': Number(row.cpu) > 80 }">{{ fmtCpu(row.cpu) }}%</span>
               </template>
             </el-table-column>
             <el-table-column prop="restarts" label="重启次数" width="100">
@@ -559,20 +589,20 @@ onBeforeUnmount(() => {
             <div class="loadavg-grid">
               <div class="loadavg-item">
                 <div class="loadavg-label">1 分钟</div>
-                <div class="loadavg-value" :class="{ 'text-danger': envInfo.cpu.loadavg[0] > envInfo.cpu.cores }">
-                  {{ envInfo.cpu.loadavg[0]?.toFixed(2) }}
+                <div class="loadavg-value" :class="{ 'text-danger': Number(envInfo.cpu.loadavg[0]) > envInfo.cpu.cores }">
+                  {{ fmtLoad(envInfo.cpu.loadavg[0]) }}
                 </div>
               </div>
               <div class="loadavg-item">
                 <div class="loadavg-label">5 分钟</div>
-                <div class="loadavg-value" :class="{ 'text-warning': envInfo.cpu.loadavg[1] > envInfo.cpu.cores }">
-                  {{ envInfo.cpu.loadavg[1]?.toFixed(2) }}
+                <div class="loadavg-value" :class="{ 'text-warning': Number(envInfo.cpu.loadavg[1]) > envInfo.cpu.cores }">
+                  {{ fmtLoad(envInfo.cpu.loadavg[1]) }}
                 </div>
               </div>
               <div class="loadavg-item">
                 <div class="loadavg-label">15 分钟</div>
                 <div class="loadavg-value">
-                  {{ envInfo.cpu.loadavg[2]?.toFixed(2) }}
+                  {{ fmtLoad(envInfo.cpu.loadavg[2]) }}
                 </div>
               </div>
             </div>

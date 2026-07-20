@@ -1,5 +1,18 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, onErrorCaptured } from 'vue';
+
+// ============ 路由组件错误捕获 ============
+// 当子路由组件（如 Environment.vue）渲染抛出异常时，捕获并展示错误信息
+// 避免出现完全空白页面，便于诊断问题
+const routeError = ref<string | null>(null);
+
+onErrorCaptured((err: any) => {
+  routeError.value = err?.message || err?.toString() || '未知渲染错误';
+  // 在控制台打印完整堆栈，方便 F12 排查
+  console.error('[AdminLayout] 子组件渲染错误:', err);
+  // 返回 false 阻止错误继续向上传播（防止整个应用白屏）
+  return false;
+});
 import { useRouter, useRoute } from 'vue-router';
 import { useThemeStore } from '@/stores/theme';
 import { useAdminStore } from '@/stores/admin';
@@ -397,7 +410,22 @@ const breadcrumbs = computed<{ label: string; path?: string }[]>(() => {
         </div>
       </header>
       <main class="admin-content">
-        <router-view />
+        <!-- 路由组件渲染错误时的诊断面板 -->
+        <div v-if="routeError" class="route-error-panel">
+          <div class="error-icon">
+            <el-icon :size="48" color="#ef4444"><WarningFilled /></el-icon>
+          </div>
+          <h2 class="error-title">页面渲染失败</h2>
+          <p class="error-detail">{{ routeError }}</p>
+          <div class="error-hint">
+            请将此错误信息截图反馈给开发者，便于快速定位修复。
+          </div>
+          <el-button type="primary" @click="routeError = null; $router.go(0)">
+            <el-icon><Refresh /></el-icon>
+            重新加载页面
+          </el-button>
+        </div>
+        <router-view v-else />
       </main>
     </div>
   </div>
@@ -832,6 +860,50 @@ const breadcrumbs = computed<{ label: string; path?: string }[]>(() => {
 
   @include mobile {
     padding: 12px;
+  }
+}
+
+// ============ 路由错误面板 ============
+.route-error-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  padding: 40px 20px;
+  text-align: center;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-base, #ebeef5);
+  border-radius: 12px;
+  gap: 16px;
+
+  .error-icon {
+    margin-bottom: 8px;
+  }
+
+  .error-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary, #1f2937);
+    margin: 0;
+  }
+
+  .error-detail {
+    font-size: 14px;
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: 6px;
+    padding: 12px 16px;
+    max-width: 80%;
+    word-break: break-word;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    margin: 0;
+  }
+
+  .error-hint {
+    font-size: 13px;
+    color: var(--text-tertiary, #9ca3af);
   }
 }
 </style>
