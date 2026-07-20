@@ -146,21 +146,36 @@ export class UserProductService {
     });
   }
 
-  // ===== 6. 定时批量同步所有非过期产品状态（每 5 分钟） =====
-  @Cron('*/5 * * * *')
+  // ===== 6. 定时批量同步所有非过期产品状态（每 30 分钟，限制单次 100 条 + 并发 5） =====
+  // 优化：原 */5 分钟串行同步所有产品，对上游 API 压力大且占用内存
+  //       改为 30 分钟一次 + 限制单次扫描 100 条 + 并发 5，降低服务器负载
+  @Cron('*/30 * * * *')
   async syncAllProductsState() {
     const list = await this.prisma.userProduct.findMany({
       where: { state: { notIn: ['EXPIRED', 'FAILED'] } },
+      select: { id: true },
+      take: 100, // 单次最多同步 100 条，避免长事务占用内存
+      orderBy: { stateSyncedAt: 'asc' }, // 优先同步最久未同步的
     });
+
+    if (!list.length) return { total: 0, updated: 0, failed: 0 };
+
     let updated = 0;
     let failed = 0;
-    for (const up of list) {
-      try {
-        await this.syncProductState(up.id);
-        updated++;
-      } catch (e: any) {
-        failed++;
-        this.logger.warn(`同步产品 ${up.id} 状态失败: ${e.message}`);
+
+    // 并发处理，限制并发数为 5
+    const CONCURRENCY = 5;
+    for (let i = 0; i < list.length; i += CONCURRENCY) {
+      const batch = list.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map((up) => this.syncProductState(up.id)),
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled') updated++;
+        else {
+          failed++;
+          this.logger.warn(`同步产品状态失败: ${r.reason?.message || r.reason}`);
+        }
       }
     }
     this.logger.log(`批量同步完成: 总 ${list.length}，成功 ${updated}，失败 ${failed}`);
@@ -364,8 +379,10 @@ export class UserProductService {
     };
   }
 
-  // ===== 10. 定时同步所有用户的面板设备（每 10 分钟） =====
-  @Cron('0 */10 * * * *')
+  // ===== 10. 定时同步所有用户的面板设备（每 2 小时，限制单次 50 个用户 + 并发 3） =====
+  // 优化：原每 10 分钟同步所有用户，频率过高且串行
+  //       改为 2 小时一次 + 限制单次 50 个 + 并发 3，大幅降低上游 API 调用频率
+  @Cron('0 */2 * * *')
   async syncAllUsersPanelDevices() {
     const users = await this.prisma.user.findMany({
       where: {
@@ -373,16 +390,27 @@ export class UserProductService {
         panelUserStatus: 'CREATED',
       },
       select: { id: true },
+      take: 50, // 单次最多同步 50 个用户
     });
+
+    if (!users.length) return { total: 0, success: 0, failed: 0 };
+
     let success = 0;
     let failed = 0;
-    for (const u of users) {
-      try {
-        await this.syncUserProductsFromPanel(u.id);
-        success++;
-      } catch (e: any) {
-        failed++;
-        this.logger.warn(`同步用户 ${u.id} 面板设备失败: ${e.message}`);
+
+    // 并发处理，限制并发数为 3
+    const CONCURRENCY = 3;
+    for (let i = 0; i < users.length; i += CONCURRENCY) {
+      const batch = users.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map((u) => this.syncUserProductsFromPanel(u.id)),
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled') success++;
+        else {
+          failed++;
+          this.logger.warn(`同步用户面板设备失败: ${r.reason?.message || r.reason}`);
+        }
       }
     }
     this.logger.log(

@@ -505,7 +505,7 @@ const onSortChange = ({ prop, order }: { prop: any; order: any }) => {
 // 同步雨云商品
 const onSync = async () => {
   ElMessageBox.confirm(
-    '系统将从雨云上游拉取最新套餐数据并同步到本地商品库，过程通常需要数秒。已有套餐会按上游价格自动更新售价（按当前加价率重算）。',
+    '系统将从雨云上游拉取最新套餐数据并同步到本地商品库，过程通常需要数秒。已有套餐会按上游价格自动更新售价（按当前优惠率重算）。',
     '同步雨云商品',
     {
       type: 'info',
@@ -917,108 +917,70 @@ onMounted(() => loadList());
       </div>
 
       <div class="table-wrap">
-        <!-- ===== Tab 1: 综合视图 ===== -->
+        <!-- ===== Tab 1: 综合视图（紧凑布局，无需横向滚动） ===== -->
         <el-table v-show="activeTab === 'overview'" v-loading="loading" :data="list" @sort-change="onSortChange">
-          <el-table-column prop="upstreamPlanId" label="官方ID" width="100" align="center" sortable="custom" :sort-orders="['descending', 'ascending']">
+          <el-table-column prop="upstreamPlanId" label="官方ID" width="80" align="center" sortable="custom" :sort-orders="['descending', 'ascending']">
             <template #default="{ row }">
               <span class="mono official-id">#{{ row.upstreamPlanId ?? '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="name" label="商品信息" min-width="320" sortable="custom" :sort-orders="['descending', 'ascending']">
+          <el-table-column prop="name" label="商品 / 规格" min-width="240" sortable="custom" :sort-orders="['descending', 'ascending']">
             <template #default="{ row }">
               <div class="product-info">
                 <div class="info-top">
                   <span class="product-name">{{ row.name }}</span>
-                  <span v-if="row.upstreamPlanName && row.upstreamPlanName !== row.name" class="product-codename">
-                    {{ row.upstreamPlanName }}
-                  </span>
                 </div>
                 <div class="info-bottom">
                   <span class="info-tag region" :title="`区域代码 ${row.zone}`">{{ row.zoneName || row.zone || '-' }}</span>
                   <span class="info-tag spec" :title="'CPU/内存/磁盘/带宽'">{{ parseSpec(row) }}</span>
-                  <span class="info-tag" :title="'月流量'">{{ formatTraffic(row.traffic, row.chargeType) }}</span>
-                  <span class="info-tag" :title="'系统盘类型'">{{ formatDiskSelling(row.upstreamDiskSelling) }}</span>
-                </div>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column prop="machine" label="处理器" width="170" align="center" sortable="custom" :sort-orders="['descending', 'ascending']">
-            <template #default="{ row }">
-              <span class="machine-text" :title="`雨云 machine 字段：${row.machine || '-'}`">
-                {{ formatMachine(row.machine) }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="line" label="网络线路" width="160" align="center" sortable="custom" :sort-orders="['descending', 'ascending']">
-            <template #default="{ row }">
-              <span class="line-text" :title="`雨云 line 字段：${row.line || '(空)'}`">
-                {{ formatLine(row.line) }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="chargeType" label="计费类型" width="120" align="center" sortable="custom" :sort-orders="['descending', 'ascending']">
-            <template #default="{ row }">
-              <span class="charge-text" :title="`雨云 charge_type 字段：${row.chargeType || '-'}`">
-                {{ formatChargeType(row.chargeType) }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column label="1月价格（机器 / 含IP）" min-width="320">
-            <template #default="{ row }">
-              <div class="price-compare">
-                <div class="price-row">
-                  <span class="price-label">机器月费</span>
-                  <span class="price-original" :title="`官方原价 ${formatMoney(getUpstreamPrice(row, '1'))}`">{{ formatMoney(getUpstreamPrice(row, '1')) }}</span>
-                  <el-icon class="arrow" title="优惠后"><ArrowRight /></el-icon>
-                  <span class="price-sell" :title="`本站售价 ${formatMoney(getSellPrice(row, '1'))}`">{{ formatMoney(getSellPrice(row, '1')) }}</span>
-                </div>
-                <div class="price-row price-row-ip">
-                  <span class="price-label">默认 IPv4</span>
-                  <span class="price-original" :title="`官方原价 ${formatMoney(getUpstreamIpPrice(row, ''))}/月`">{{ formatMoney(getUpstreamIpPrice(row, '')) }}<span class="price-unit">/月</span></span>
-                  <el-icon class="arrow" title="优惠后"><ArrowRight /></el-icon>
-                  <span class="ip-info" :title="`本站 IP 月费 ${formatMoney(getDefaultIpPrice(row))}/月`">
-                    <span class="ip-price">+{{ formatMoney(getDefaultIpPrice(row)) }}<span class="ip-unit">/月</span></span>
-                    <span class="ip-count" v-if="getIpOptionsCount(row) > 1" :title="`共 ${getIpOptionsCount(row)} 种 IP 可选`">
-                      共{{ getIpOptionsCount(row) }}种
-                    </span>
-                  </span>
-                  <el-icon class="arrow" title="合计"><ArrowRight /></el-icon>
-                  <span class="price-sell price-total" :title="`含 IP 起价 ${formatMoney(getStartingPrice(row))}`">
-                    合计 <span class="price-total-value">{{ formatMoney(getStartingPrice(row)) }}</span>
+                  <span class="info-tag" :title="`流量：${formatTraffic(row.traffic, row.chargeType)} · 线路：${formatLine(row.line)} · 处理器：${formatMachine(row.machine)}`">
+                    {{ formatLine(row.line) }} · {{ formatMachine(row.machine) }}
                   </span>
                 </div>
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="markupRate" label="优惠率" width="110" align="center" sortable="custom" :sort-orders="['descending', 'ascending']">
+          <el-table-column label="1月价格（含 IP）" min-width="200">
             <template #default="{ row }">
-              <span class="discount-badge" :class="`is-${markupTagType(row.markupRate ?? row.markup)}`">
-                {{ formatMarkup(row.markupRate ?? row.markup) }}
+              <div class="price-compare-compact">
+                <div class="price-line-original">
+                  <span class="strike">{{ formatMoney(getUpstreamPrice(row, '1') + getUpstreamIpPrice(row, '')) }}</span>
+                  <span class="discount-badge mini" :class="`is-${markupTagType(row.markupRate ?? row.markup)}`">
+                    {{ formatMarkup(row.markupRate ?? row.markup) }}
+                  </span>
+                </div>
+                <div class="price-line-sell">
+                  <span class="price-sell-main">{{ formatMoney(getStartingPrice(row)) }}</span>
+                  <span class="price-sell-unit">/月起</span>
+                </div>
+                <div class="price-line-sub" v-if="getIpOptionsCount(row) > 1">
+                  共 {{ getIpOptionsCount(row) }} 种 IP 可选
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="netMode" label="网络" width="90" align="center" sortable="custom" :sort-orders="['descending', 'ascending']">
+            <template #default="{ row }">
+              <span class="net-badge" :class="{ 'is-nat': row.netMode === 'nat' }">
+                {{ row.netMode === 'nat' ? 'NAT' : '独立' }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column prop="isOnSale" label="状态" width="90" align="center" sortable="custom" :sort-orders="['descending', 'ascending']">
+          <el-table-column prop="availableStock" label="库存" width="80" align="center" sortable="custom" :sort-orders="['descending', 'ascending']">
+            <template #default="{ row }">
+              <span class="stock-text" :class="{ 'is-low': row.availableStock > 0 && row.availableStock <= 10 }">
+                {{ row.availableStock > 0 ? `${row.availableStock}` : '充足' }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="isOnSale" label="状态" width="80" align="center" sortable="custom" :sort-orders="['descending', 'ascending']">
             <template #default="{ row }">
               <span class="status-text" :class="`is-${statusTag(getStatus(row))}`">
                 {{ statusLabel(getStatus(row)) }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column prop="netMode" label="网络" width="100" align="center" sortable="custom" :sort-orders="['descending', 'ascending']">
-            <template #default="{ row }">
-              <span class="net-badge" :class="{ 'is-nat': row.netMode === 'nat' }">
-                {{ row.netMode === 'nat' ? 'NAT 共享' : '独立 IP' }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="availableStock" label="库存" width="100" align="center" sortable="custom" :sort-orders="['descending', 'ascending']">
-            <template #default="{ row }">
-              <span class="stock-text" :class="{ 'is-low': row.availableStock > 0 && row.availableStock <= 10 }">
-                {{ row.availableStock > 0 ? `剩 ${row.availableStock} 台` : '充足' }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="200" fixed="right">
+          <el-table-column label="操作" width="170" fixed="right">
             <template #default="{ row }">
               <el-button class="row-btn" size="default" @click="openEdit(row)">
                 <el-icon style="margin-right: 4px;"><Edit /></el-icon>
@@ -1037,139 +999,7 @@ onMounted(() => loadList());
 
         <!-- ===== Tab 2: 商品原价（上游官方价） ===== -->
         <el-table v-show="activeTab === 'upstream'" v-loading="loading" :data="list">
-          <el-table-column prop="upstreamPlanId" label="官方ID" width="90" align="center">
-            <template #default="{ row }">
-              <span class="mono official-id">#{{ row.upstreamPlanId ?? '-' }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="name" label="商品信息" min-width="220">
-            <template #default="{ row }">
-              <div class="product-info">
-                <span class="product-name">{{ row.name }}</span>
-                <div class="info-bottom">
-                  <span class="info-tag region">{{ row.zone || row.zoneName || '-' }}</span>
-                  <span class="info-tag spec">{{ parseSpec(row) }}</span>
-                </div>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column
-            v-for="c in cycleColumns"
-            :key="`up-machine-${c.value}`"
-            :label="`机器 ${c.label}`"
-            width="110"
-            align="right"
-          >
-            <template #default="{ row }">
-              <span class="mono price-upstream">{{ formatMoney(getUpstreamPrice(row, c.value)) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="默认 IPv4" width="140" align="right">
-            <template #default="{ row }">
-              <div class="ip-price-cell">
-                <span class="mono price-upstream">{{ formatMoney(getUpstreamIpPrice(row, '')) }}<span class="price-unit">/月</span></span>
-                <span class="mono ip-price-sell-sub" v-if="getDefaultIpPrice(row) > 0 && getDefaultIpPrice(row) !== getUpstreamIpPrice(row, '')">
-                  → {{ formatMoney(getDefaultIpPrice(row)) }}
-                </span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="最贵 IP" width="140" align="right">
-            <template #default="{ row }">
-              <div class="ip-price-cell" v-if="getMostExpensiveIp(row)">
-                <span class="mono price-upstream">{{ formatMoney(getUpstreamIpPrice(row, getMostExpensiveIp(row)!.type)) }}<span class="price-unit">/月</span></span>
-                <span class="mono ip-price-sell-sub" v-if="getMostExpensiveIp(row)!.price > 0 && getMostExpensiveIp(row)!.price !== getUpstreamIpPrice(row, getMostExpensiveIp(row)!.type)">
-                  → {{ formatMoney(getMostExpensiveIp(row)!.price) }}
-                </span>
-              </div>
-              <span v-else class="text-tertiary">—</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="IP 种类" width="80" align="center">
-            <template #default="{ row }">
-              <span class="ip-count-badge">{{ getIpOptionsCount(row) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="160" fixed="right">
-            <template #default="{ row }">
-              <el-button class="row-btn" size="default" @click="openEdit(row)">
-                <el-icon style="margin-right: 4px;"><Edit /></el-icon>编辑
-              </el-button>
-            </template>
-          </el-table-column>
-          <template #empty><el-empty description="暂无商品" /></template>
-        </el-table>
-
-        <!-- ===== Tab 3: 优惠后售价（本站价） ===== -->
-        <el-table v-show="activeTab === 'sell'" v-loading="loading" :data="list">
-          <el-table-column prop="upstreamPlanId" label="官方ID" width="90" align="center">
-            <template #default="{ row }">
-              <span class="mono official-id">#{{ row.upstreamPlanId ?? '-' }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="name" label="商品信息" min-width="220">
-            <template #default="{ row }">
-              <div class="product-info">
-                <span class="product-name">{{ row.name }}</span>
-                <div class="info-bottom">
-                  <span class="info-tag region">{{ row.zone || row.zoneName || '-' }}</span>
-                  <span class="info-tag spec">{{ parseSpec(row) }}</span>
-                </div>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column
-            v-for="c in cycleColumns"
-            :key="`sell-machine-${c.value}`"
-            :label="`机器 ${c.label}`"
-            width="110"
-            align="right"
-          >
-            <template #default="{ row }">
-              <span class="mono price-sell">{{ formatMoney(getSellPrice(row, c.value)) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="默认 IPv4" width="140" align="right">
-            <template #default="{ row }">
-              <div class="ip-price-cell">
-                <span class="mono ip-price-strike" v-if="getUpstreamIpPrice(row, '') > 0 && getUpstreamIpPrice(row, '') !== getDefaultIpPrice(row)">
-                  {{ formatMoney(getUpstreamIpPrice(row, '')) }}
-                </span>
-                <span class="mono price-sell">{{ formatMoney(getDefaultIpPrice(row)) }}<span class="price-unit">/月</span></span>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="最贵 IP" width="140" align="right">
-            <template #default="{ row }">
-              <div class="ip-price-cell" v-if="getMostExpensiveIp(row)">
-                <span class="mono ip-price-strike" v-if="getUpstreamIpPrice(row, getMostExpensiveIp(row)!.type) > 0 && getUpstreamIpPrice(row, getMostExpensiveIp(row)!.type) !== getMostExpensiveIp(row)!.price">
-                  {{ formatMoney(getUpstreamIpPrice(row, getMostExpensiveIp(row)!.type)) }}
-                </span>
-                <span class="mono price-sell">{{ formatMoney(getMostExpensiveIp(row)!.price) }}<span class="price-unit">/月</span></span>
-              </div>
-              <span v-else class="text-tertiary">—</span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="markupRate" label="优惠率" width="100" align="center">
-            <template #default="{ row }">
-              <span class="discount-badge" :class="`is-${markupTagType(row.markupRate ?? row.markup)}`">
-                {{ formatMarkup(row.markupRate ?? row.markup) }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="160" fixed="right">
-            <template #default="{ row }">
-              <el-button class="row-btn" size="default" @click="openEdit(row)">
-                <el-icon style="margin-right: 4px;"><Edit /></el-icon>编辑
-              </el-button>
-            </template>
-          </el-table-column>
-          <template #empty><el-empty description="暂无商品" /></template>
-        </el-table>
-
-        <!-- ===== Tab 4: 总价对比（机器 + 默认IPv4 × 1，优惠前后） ===== -->
-        <el-table v-show="activeTab === 'total'" v-loading="loading" :data="list">
-          <el-table-column prop="upstreamPlanId" label="官方ID" width="90" align="center">
+          <el-table-column prop="upstreamPlanId" label="官方ID" width="80" align="center">
             <template #default="{ row }">
               <span class="mono official-id">#{{ row.upstreamPlanId ?? '-' }}</span>
             </template>
@@ -1187,9 +1017,119 @@ onMounted(() => loadList());
           </el-table-column>
           <el-table-column
             v-for="c in cycleColumns"
+            :key="`up-machine-${c.value}`"
+            :label="`机器 ${c.label}`"
+            min-width="95"
+            align="right"
+          >
+            <template #default="{ row }">
+              <span class="mono price-upstream">{{ formatMoney(getUpstreamPrice(row, c.value)) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="默认 IPv4" min-width="110" align="right">
+            <template #default="{ row }">
+              <div class="ip-price-cell">
+                <span class="mono price-upstream">{{ formatMoney(getUpstreamIpPrice(row, '')) }}<span class="price-unit">/月</span></span>
+                <span class="mono ip-price-sell-sub" v-if="getDefaultIpPrice(row) > 0 && getDefaultIpPrice(row) !== getUpstreamIpPrice(row, '')">
+                  → {{ formatMoney(getDefaultIpPrice(row)) }}
+                </span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="IP 种类" width="70" align="center">
+            <template #default="{ row }">
+              <span class="ip-count-badge">{{ getIpOptionsCount(row) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="100" fixed="right">
+            <template #default="{ row }">
+              <el-button class="row-btn" size="default" @click="openEdit(row)">
+                <el-icon style="margin-right: 4px;"><Edit /></el-icon>编辑
+              </el-button>
+            </template>
+          </el-table-column>
+          <template #empty><el-empty description="暂无商品" /></template>
+        </el-table>
+
+        <!-- ===== Tab 3: 优惠后售价（本站价） ===== -->
+        <el-table v-show="activeTab === 'sell'" v-loading="loading" :data="list">
+          <el-table-column prop="upstreamPlanId" label="官方ID" width="80" align="center">
+            <template #default="{ row }">
+              <span class="mono official-id">#{{ row.upstreamPlanId ?? '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="name" label="商品信息" min-width="200">
+            <template #default="{ row }">
+              <div class="product-info">
+                <span class="product-name">{{ row.name }}</span>
+                <div class="info-bottom">
+                  <span class="info-tag region">{{ row.zone || row.zoneName || '-' }}</span>
+                  <span class="info-tag spec">{{ parseSpec(row) }}</span>
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column
+            v-for="c in cycleColumns"
+            :key="`sell-machine-${c.value}`"
+            :label="`机器 ${c.label}`"
+            min-width="95"
+            align="right"
+          >
+            <template #default="{ row }">
+              <span class="mono price-sell">{{ formatMoney(getSellPrice(row, c.value)) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="默认 IPv4" min-width="110" align="right">
+            <template #default="{ row }">
+              <div class="ip-price-cell">
+                <span class="mono ip-price-strike" v-if="getUpstreamIpPrice(row, '') > 0 && getUpstreamIpPrice(row, '') !== getDefaultIpPrice(row)">
+                  {{ formatMoney(getUpstreamIpPrice(row, '')) }}
+                </span>
+                <span class="mono price-sell">{{ formatMoney(getDefaultIpPrice(row)) }}<span class="price-unit">/月</span></span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="markupRate" label="优惠率" width="90" align="center">
+            <template #default="{ row }">
+              <span class="discount-badge" :class="`is-${markupTagType(row.markupRate ?? row.markup)}`">
+                {{ formatMarkup(row.markupRate ?? row.markup) }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="100" fixed="right">
+            <template #default="{ row }">
+              <el-button class="row-btn" size="default" @click="openEdit(row)">
+                <el-icon style="margin-right: 4px;"><Edit /></el-icon>编辑
+              </el-button>
+            </template>
+          </el-table-column>
+          <template #empty><el-empty description="暂无商品" /></template>
+        </el-table>
+
+        <!-- ===== Tab 4: 总价对比（机器 + 默认IPv4 × 1，优惠前后） ===== -->
+        <el-table v-show="activeTab === 'total'" v-loading="loading" :data="list">
+          <el-table-column prop="upstreamPlanId" label="官方ID" width="80" align="center">
+            <template #default="{ row }">
+              <span class="mono official-id">#{{ row.upstreamPlanId ?? '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="name" label="商品信息" min-width="180">
+            <template #default="{ row }">
+              <div class="product-info">
+                <span class="product-name">{{ row.name }}</span>
+                <div class="info-bottom">
+                  <span class="info-tag region">{{ row.zone || row.zoneName || '-' }}</span>
+                  <span class="info-tag spec">{{ parseSpec(row) }}</span>
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column
+            v-for="c in cycleColumns"
             :key="`total-${c.value}`"
             :label="`${c.label} 总价`"
-            min-width="170"
+            min-width="140"
             align="center"
           >
             <template #default="{ row }">
@@ -1204,12 +1144,7 @@ onMounted(() => loadList());
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="说明" min-width="160">
-            <template #default>
-              <span class="text-tertiary total-hint">机器 + 默认 IPv4 × 1</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="160" fixed="right">
+          <el-table-column label="操作" width="100" fixed="right">
             <template #default="{ row }">
               <el-button class="row-btn" size="default" @click="openEdit(row)">
                 <el-icon style="margin-right: 4px;"><Edit /></el-icon>编辑
@@ -1264,12 +1199,12 @@ onMounted(() => loadList());
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="upstreamPlanId" label="官方ID" width="90" align="center">
+          <el-table-column prop="upstreamPlanId" label="官方ID" width="80" align="center">
             <template #default="{ row }">
               <span class="mono official-id">#{{ row.upstreamPlanId ?? '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="name" label="商品信息" min-width="220">
+          <el-table-column prop="name" label="商品信息" min-width="180">
             <template #default="{ row }">
               <div class="product-info">
                 <span class="product-name">{{ row.name }}</span>
@@ -1280,12 +1215,12 @@ onMounted(() => loadList());
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="IP 种类数" width="100" align="center">
+          <el-table-column label="IP 种类数" width="90" align="center">
             <template #default="{ row }">
               <span class="ip-count-badge">{{ getIpOptionsCount(row) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="最便宜 IP" min-width="180">
+          <el-table-column label="最便宜 IP" min-width="150">
             <template #default="{ row }">
               <div v-if="getCheapestIp(row)" class="ip-summary">
                 <span class="ip-summary-label">{{ getCheapestIp(row)!.label }}</span>
@@ -1296,7 +1231,7 @@ onMounted(() => loadList());
               <span v-else class="text-tertiary">—</span>
             </template>
           </el-table-column>
-          <el-table-column label="最贵 IP" min-width="180">
+          <el-table-column label="最贵 IP" min-width="150">
             <template #default="{ row }">
               <div v-if="getMostExpensiveIp(row)" class="ip-summary">
                 <span class="ip-summary-label">{{ getMostExpensiveIp(row)!.label }}</span>
@@ -1307,14 +1242,14 @@ onMounted(() => loadList());
               <span v-else class="text-tertiary">—</span>
             </template>
           </el-table-column>
-          <el-table-column prop="markupRate" label="优惠率" width="100" align="center">
+          <el-table-column prop="markupRate" label="优惠率" width="90" align="center">
             <template #default="{ row }">
               <span class="discount-badge" :class="`is-${markupTagType(row.markupRate ?? row.markup)}`">
                 {{ formatMarkup(row.markupRate ?? row.markup) }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="160" fixed="right">
+          <el-table-column label="操作" width="100" fixed="right">
             <template #default="{ row }">
               <el-button class="row-btn" size="default" @click="openEdit(row)">
                 <el-icon style="margin-right: 4px;"><Edit /></el-icon>编辑
@@ -1937,14 +1872,23 @@ onMounted(() => loadList());
   }
 }
 
-// 表格包裹：移动端水平滚动
+// 表格包裹：桌面端不滚动（响应式自适应），移动端允许水平滚动
 .table-wrap {
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 
   :deep(.el-table) {
-    min-width: 960px;
+    // 综合视图（Tab 1）在桌面端宽度自适应，不强制最小宽度
+    // 其他视图保留最小宽度，仅在内容确实超过容器时才允许横向滚动
+    min-width: 0;
+  }
+
+  // 在小屏幕（< 768px）允许横向滚动作为兜底
+  @include mobile {
+    :deep(.el-table) {
+      min-width: 720px;
+    }
   }
 }
 
@@ -2011,6 +1955,60 @@ onMounted(() => loadList());
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+// 紧凑价格显示（综合视图 Tab 1）
+.price-compare-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.3;
+
+  .price-line-original {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    .strike {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-tertiary);
+      text-decoration: line-through;
+      text-decoration-color: rgba(244, 67, 54, 0.5);
+    }
+  }
+
+  .price-line-sell {
+    display: flex;
+    align-items: baseline;
+    gap: 2px;
+
+    .price-sell-main {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--gold-500);
+    }
+
+    .price-sell-unit {
+      font-size: 10px;
+      color: var(--text-tertiary);
+    }
+  }
+
+  .price-line-sub {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    letter-spacing: 0.2px;
+  }
+}
+
+// 优惠率徽章紧凑版
+.discount-badge.mini {
+  padding: 1px 6px;
+  font-size: 10px;
+  border-radius: 8px;
+  letter-spacing: 0;
 }
 
 // IP 价格单元格（原价划线 + 优惠后价 或 上游价 → 优惠后价）

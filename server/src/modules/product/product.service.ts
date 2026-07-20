@@ -134,87 +134,108 @@ export class ProductService {
       let unchanged = 0;
       let migrated = 0; // 一次性迁移：把老加价率改为优惠率
 
-      // 一次性迁移：把所有 markupRate > 0 的老商品改为默认优惠率 -0.10
-      // 并重算机器售价 + IP 售价（避免用户首次同步后看到的是加价数据）
-      const staleProducts = await this.prisma.product.findMany({
+      // ===== 一次性迁移逻辑（按需执行，无数据时只查一次 count 不全表扫描） =====
+      // 优化：原实现每次同步都 findMany 全表 + 逐行 update，对几百条商品的库压力很大
+      //       改为：先用 count 判断是否有需要迁移的数据，无则跳过；有则批量处理
+
+      // 1) markupRate > 0 的老商品迁移（仅当存在时才执行）
+      const staleCount = await this.prisma.product.count({
         where: { markupRate: { gt: 0 } },
       });
-      for (const p of staleProducts) {
-        const upstreamPrices: Record<string, number> = p.upstreamPrices
-          ? JSON.parse(p.upstreamPrices)
-          : {};
-        const newPrices = JSON.stringify(
-          this.recalcPrice(upstreamPrices, DEFAULT_MARKUP_RATE),
-        );
-        // 同步重算 IP 价格（如果有的话）
-        const updateData: any = {
-          markupRate: DEFAULT_MARKUP_RATE,
-          prices: newPrices,
-          upstreamChanged: false, // 清除待复核标记（已自动改为优惠）
-        };
-        if (p.upstreamIpPrices) {
-          try {
-            const upstreamIpPrices: Record<string, number> = JSON.parse(p.upstreamIpPrices);
-            updateData.ipPrices = JSON.stringify(
-              this.recalcIpPrices(upstreamIpPrices, DEFAULT_MARKUP_RATE),
-            );
-          } catch {}
-        }
-        await this.prisma.product.update({
-          where: { id: p.id },
-          data: updateData,
+      if (staleCount > 0) {
+        const staleProducts = await this.prisma.product.findMany({
+          where: { markupRate: { gt: 0 } },
+          select: { id: true, upstreamPrices: true, upstreamIpPrices: true },
         });
-        migrated++;
-      }
-      if (migrated > 0) {
-        this.logger.log(
-          `迁移完成：${migrated} 个商品由加价模式切换为 9 折优惠模式`,
-        );
-      }
-
-      // 一次性迁移：把 memory > 128 的老商品（MB 单位）换算为 GB
-      // 阈值 128 = 上游 memory 通常 ≥ 512 MB，GB 值通常 ≤ 128
-      const mbProducts = await this.prisma.product.findMany({
-        where: { memory: { gt: 128 } },
-      });
-      let memMigrated = 0;
-      for (const p of mbProducts) {
-        const gb = Math.ceil((p.memory as number) / 1024);
-        await this.prisma.product.update({
-          where: { id: p.id },
-          data: { memory: gb },
-        });
-        memMigrated++;
-      }
-      if (memMigrated > 0) {
-        this.logger.log(
-          `内存单位迁移完成：${memMigrated} 个商品由 MB 换算为 GB`,
-        );
-      }
-
-      // 一次性迁移：对所有现有商品重新推断 trafficType
-      // 背景：trafficType 字段是后加的，老商品此字段为 null/default("standard")
-      // 用最新 inferTrafficType 规则按 zone/zoneName/name 重新推断，确保筛选生效
-      const allProducts = await this.prisma.product.findMany();
-      let trafficMigrated = 0;
-      for (const p of allProducts) {
-        const inferred = this.inferTrafficType({
-          zone: p.zone,
-          zoneName: p.zoneName,
-          name: p.name,
-        });
-        if (inferred !== p.trafficType) {
+        for (const p of staleProducts) {
+          const upstreamPrices: Record<string, number> = p.upstreamPrices
+            ? JSON.parse(p.upstreamPrices)
+            : {};
+          const newPrices = JSON.stringify(
+            this.recalcPrice(upstreamPrices, DEFAULT_MARKUP_RATE),
+          );
+          const updateData: any = {
+            markupRate: DEFAULT_MARKUP_RATE,
+            prices: newPrices,
+            upstreamChanged: false,
+          };
+          if (p.upstreamIpPrices) {
+            try {
+              const upstreamIpPrices: Record<string, number> = JSON.parse(p.upstreamIpPrices);
+              updateData.ipPrices = JSON.stringify(
+                this.recalcIpPrices(upstreamIpPrices, DEFAULT_MARKUP_RATE),
+              );
+            } catch {}
+          }
           await this.prisma.product.update({
             where: { id: p.id },
-            data: { trafficType: inferred },
+            data: updateData,
           });
-          trafficMigrated++;
+          migrated++;
         }
+        this.logger.log(`迁移完成：${migrated} 个商品由加价模式切换为 9 折优惠模式`);
       }
-      if (trafficMigrated > 0) {
-        this.logger.log(
-          `流量类型迁移完成：${trafficMigrated} 个商品 trafficType 被重新推断`,
-        );
+
+      // 2) memory > 128 的老商品 MB→GB 迁移（仅当存在时才执行）
+      const mbCount = await this.prisma.product.count({
+        where: { memory: { gt: 128 } },
+      });
+      if (mbCount > 0) {
+        const mbProducts = await this.prisma.product.findMany({
+          where: { memory: { gt: 128 } },
+          select: { id: true, memory: true },
+        });
+        for (const p of mbProducts) {
+          const gb = Math.ceil((p.memory as number) / 1024);
+          await this.prisma.product.update({
+            where: { id: p.id },
+            data: { memory: gb },
+          });
+        }
+        this.logger.log(`内存单位迁移完成：${mbCount} 个商品由 MB 换算为 GB`);
+      }
+
+      // 3) trafficType 推断迁移（仅扫描字段为空或默认值的商品，不全表）
+      // 优化：原实现 findMany() 全表扫描，对每条记录做 inferTrafficType
+      //       改为：只扫描 trafficType 为空或 'standard'（默认值）的商品
+      const trafficPending = await this.prisma.product.count({
+        where: {
+          OR: [
+            { trafficType: null },
+            { trafficType: '' },
+            { trafficType: 'standard' },
+          ],
+        },
+      });
+      if (trafficPending > 0) {
+        const pendingProducts = await this.prisma.product.findMany({
+          where: {
+            OR: [
+              { trafficType: null },
+              { trafficType: '' },
+              { trafficType: 'standard' },
+            ],
+          },
+          select: { id: true, zone: true, zoneName: true, name: true },
+        });
+        let trafficMigrated = 0;
+        for (const p of pendingProducts) {
+          const inferred = this.inferTrafficType({
+            zone: p.zone,
+            zoneName: p.zoneName,
+            name: p.name,
+          });
+          if (inferred && inferred !== 'standard') {
+            await this.prisma.product.update({
+              where: { id: p.id },
+              data: { trafficType: inferred },
+            });
+            trafficMigrated++;
+          }
+        }
+        if (trafficMigrated > 0) {
+          this.logger.log(`流量类型迁移完成：${trafficMigrated} 个商品 trafficType 被重新推断`);
+        }
       }
 
       for (const plan of plans) {

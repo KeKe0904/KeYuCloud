@@ -54,113 +54,145 @@ export class RainyunService implements OnModuleInit {
     'cn-wz1': '浙江温州',
   };
 
-  // mock 状态（持久化在内存）
-  private mockState = {
-    panelUsers: new Map<string, any>(),
-    rcsInstances: new Map<number, any>(),
-    workorders: new Map<number, any>(),
-    nextRcsId: 10000,
-    nextWorkorderId: 20000,
-    nextTaskId: 30000,
-    panelConfig: {
-      domain: '',
-      bg_url: '',
-      web_url: '',
-      logo: '',
-      icon: '',
-      title: '云服分销平台',
-      panel_name: '产品管理',
-      css: '',
-      broadcast: '',
-    },
-    balance: 1000.5,
-    points: 200,
-  };
+  // ===== MOCK 数据（懒加载，LIVE 模式下不占用内存） =====
+  // 优化：原实现将 mockState/mockPlans/mockOs 作为类属性直接初始化，
+  //       LIVE 模式下也分配内存（mockState 的 Map 会一直常驻）。
+  //       改为 getter 懒加载，仅在首次进入 MOCK 模式时才初始化。
+  private _mockState: any = null;
+  private _mockPlans: any[] | null = null;
+  private _mockOs: any[] | null = null;
+
+  private get mockState(): {
+    panelUsers: Map<string, any>;
+    rcsInstances: Map<number, any>;
+    workorders: Map<number, any>;
+    nextRcsId: number;
+    nextWorkorderId: number;
+    nextTaskId: number;
+    panelConfig: any;
+    balance: number;
+    points: number;
+  } {
+    if (!this._mockState) {
+      this._mockState = {
+        panelUsers: new Map<string, any>(),
+        rcsInstances: new Map<number, any>(),
+        workorders: new Map<number, any>(),
+        nextRcsId: 10000,
+        nextWorkorderId: 20000,
+        nextTaskId: 30000,
+        panelConfig: {
+          domain: '',
+          bg_url: '',
+          web_url: '',
+          logo: '',
+          icon: '',
+          title: '云服分销平台',
+          panel_name: '产品管理',
+          css: '',
+          broadcast: '',
+        },
+        balance: 1000.5,
+        points: 200,
+      };
+    }
+    return this._mockState;
+  }
 
   // mock 套餐数据（memory 单位为 MB，syncUpstreamPlans 时会自动换算为 GB）
   // net_mode: 'normal'=独立IP（可购买独立IP）/ 'nat'=NAT共享IP（不可购买独立IP）
   // available_stock: 0=无限库存 / >0=剩余可开数量
   // ip_selling: 在售 IP 类型数组（""=默认IPv4 / "ipv6"=IPv6 / "hk_ddosip"=香港高防IP 等）
   // ip_prices: 各 IP 类型月价（""=默认IPv4月价，与机器价分开计费）
-  private readonly mockPlans = [
-    {
-      id: 1, name: '轻量云 1H1G', zone: 'CN-ZJ', zone_name: '浙江',
-      cpu: 1, memory: 1024, disk: 20, bandwidth: 5, traffic: 500,
-      prices: { '1': 10, '3': 28, '6': 55, '12': 100 },
-      net_mode: 'normal', available_stock: 0,
-      ip_selling: ['', 'ipv6'], ip_prices: { '': 5, 'ipv6': 0 },
-    },
-    {
-      id: 2, name: '标准云 2H2G', zone: 'CN-ZJ', zone_name: '浙江',
-      cpu: 2, memory: 2048, disk: 40, bandwidth: 10, traffic: 1000,
-      prices: { '1': 20, '3': 56, '6': 110, '12': 200 },
-      net_mode: 'normal', available_stock: 50,
-      ip_selling: ['', 'ipv6'], ip_prices: { '': 5, 'ipv6': 0 },
-    },
-    {
-      id: 3, name: '增强云 4H4G', zone: 'CN-GZ', zone_name: '广东',
-      cpu: 4, memory: 4096, disk: 80, bandwidth: 20, traffic: 2000,
-      prices: { '1': 40, '3': 112, '6': 220, '12': 400 },
-      net_mode: 'normal', available_stock: 30,
-      ip_selling: ['', 'ipv6'], ip_prices: { '': 5, 'ipv6': 0 },
-    },
-    {
-      id: 4, name: '高配云 8H8G', zone: 'CN-GZ', zone_name: '广东',
-      cpu: 8, memory: 8192, disk: 160, bandwidth: 50, traffic: 5000,
-      prices: { '1': 80, '3': 224, '6': 440, '12': 800 },
-      net_mode: 'normal', available_stock: 10,
-      ip_selling: ['', 'ipv6'], ip_prices: { '': 5, 'ipv6': 0 },
-    },
-    {
-      id: 5, name: '香港轻量 1H1G', zone: 'HK', zone_name: '香港',
-      cpu: 1, memory: 1024, disk: 20, bandwidth: 30, traffic: 1000,
-      prices: { '1': 25, '3': 70, '6': 138, '12': 250 },
-      net_mode: 'normal', available_stock: 0,
-      ip_selling: ['', 'ipv6', 'hk_ddosip'], ip_prices: { '': 8, 'ipv6': 0, 'hk_ddosip': 30 },
-    },
-    {
-      id: 6, name: '香港CN2 2H2G', zone: 'HK', zone_name: '香港CN2',
-      cpu: 2, memory: 2048, disk: 40, bandwidth: 30, traffic: 0,
-      prices: { '1': 35, '3': 98, '6': 192, '12': 350 },
-      net_mode: 'normal', available_stock: 0,
-      ip_selling: ['', 'ipv6', 'hk_ddosip'], ip_prices: { '': 8, 'ipv6': 0, 'hk_ddosip': 30 },
-    },
-    {
-      id: 7, name: '宁波NAT 2H2G', zone: 'CN-NB', zone_name: '宁波',
-      cpu: 2, memory: 2048, disk: 40, bandwidth: 10, traffic: 500,
-      prices: { '1': 18, '3': 50, '6': 100, '12': 180 },
-      // NAT 共享 IP：无法购买独立 IP，ip_selling 为空数组
-      net_mode: 'nat', available_stock: 100,
-      ip_selling: [], ip_prices: {},
-    },
-    {
-      id: 8, name: '宁波叠加 4H4G', zone: 'CN-NB', zone_name: '宁波',
-      cpu: 4, memory: 4096, disk: 80, bandwidth: 20, traffic: 1000,
-      prices: { '1': 35, '3': 98, '6': 192, '12': 350 },
-      // 流量叠加型 + NAT 共享 IP
-      net_mode: 'nat', available_stock: 80,
-      ip_selling: [], ip_prices: {},
-    },
-  ];
+  private get mockPlans(): any[] {
+    if (!this._mockPlans) {
+      this._mockPlans = [
+        {
+          id: 1, name: '轻量云 1H1G', zone: 'CN-ZJ', zone_name: '浙江',
+          cpu: 1, memory: 1024, disk: 20, bandwidth: 5, traffic: 500,
+          prices: { '1': 10, '3': 28, '6': 55, '12': 100 },
+          net_mode: 'normal', available_stock: 0,
+          ip_selling: ['', 'ipv6'], ip_prices: { '': 5, 'ipv6': 0 },
+        },
+        {
+          id: 2, name: '标准云 2H2G', zone: 'CN-ZJ', zone_name: '浙江',
+          cpu: 2, memory: 2048, disk: 40, bandwidth: 10, traffic: 1000,
+          prices: { '1': 20, '3': 56, '6': 110, '12': 200 },
+          net_mode: 'normal', available_stock: 50,
+          ip_selling: ['', 'ipv6'], ip_prices: { '': 5, 'ipv6': 0 },
+        },
+        {
+          id: 3, name: '增强云 4H4G', zone: 'CN-GZ', zone_name: '广东',
+          cpu: 4, memory: 4096, disk: 80, bandwidth: 20, traffic: 2000,
+          prices: { '1': 40, '3': 112, '6': 220, '12': 400 },
+          net_mode: 'normal', available_stock: 30,
+          ip_selling: ['', 'ipv6'], ip_prices: { '': 5, 'ipv6': 0 },
+        },
+        {
+          id: 4, name: '高配云 8H8G', zone: 'CN-GZ', zone_name: '广东',
+          cpu: 8, memory: 8192, disk: 160, bandwidth: 50, traffic: 5000,
+          prices: { '1': 80, '3': 224, '6': 440, '12': 800 },
+          net_mode: 'normal', available_stock: 10,
+          ip_selling: ['', 'ipv6'], ip_prices: { '': 5, 'ipv6': 0 },
+        },
+        {
+          id: 5, name: '香港轻量 1H1G', zone: 'HK', zone_name: '香港',
+          cpu: 1, memory: 1024, disk: 20, bandwidth: 30, traffic: 1000,
+          prices: { '1': 25, '3': 70, '6': 138, '12': 250 },
+          net_mode: 'normal', available_stock: 0,
+          ip_selling: ['', 'ipv6', 'hk_ddosip'], ip_prices: { '': 8, 'ipv6': 0, 'hk_ddosip': 30 },
+        },
+        {
+          id: 6, name: '香港CN2 2H2G', zone: 'HK', zone_name: '香港CN2',
+          cpu: 2, memory: 2048, disk: 40, bandwidth: 30, traffic: 0,
+          prices: { '1': 35, '3': 98, '6': 192, '12': 350 },
+          net_mode: 'normal', available_stock: 0,
+          ip_selling: ['', 'ipv6', 'hk_ddosip'], ip_prices: { '': 8, 'ipv6': 0, 'hk_ddosip': 30 },
+        },
+        {
+          id: 7, name: '宁波NAT 2H2G', zone: 'CN-NB', zone_name: '宁波',
+          cpu: 2, memory: 2048, disk: 40, bandwidth: 10, traffic: 500,
+          prices: { '1': 18, '3': 50, '6': 100, '12': 180 },
+          // NAT 共享 IP：无法购买独立 IP，ip_selling 为空数组
+          net_mode: 'nat', available_stock: 100,
+          ip_selling: [], ip_prices: {},
+        },
+        {
+          id: 8, name: '宁波叠加 4H4G', zone: 'CN-NB', zone_name: '宁波',
+          cpu: 4, memory: 4096, disk: 80, bandwidth: 20, traffic: 1000,
+          prices: { '1': 35, '3': 98, '6': 192, '12': 350 },
+          // 流量叠加型 + NAT 共享 IP
+          net_mode: 'nat', available_stock: 80,
+          ip_selling: [], ip_prices: {},
+        },
+      ];
+    }
+    return this._mockPlans;
+  }
 
   // 雨云官方 RCS OS 模板（基于 /product/rcs/os-templates 返回整理）
   // os_type: linux / windows
   // 注：is_with_bbr 表示系统自带 BBR 拥塞控制（适合大带宽机型）
-  private readonly mockOs = [
-    // ===== Linux 系列 =====
-    { id: 4, name: 'Debian 12', os_type: 'linux', is_with_bbr: true, is_available: true, is_eol: false },
-    { id: 3, name: 'Debian 11', os_type: 'linux', is_with_bbr: true, is_available: true, is_eol: false },
-    { id: 31, name: 'Ubuntu 22.04', os_type: 'linux', is_with_bbr: true, is_available: true, is_eol: false },
-    { id: 32, name: 'Ubuntu 20.04', os_type: 'linux', is_with_bbr: true, is_available: true, is_eol: false },
-    { id: 1, name: 'CentOS 7.9', os_type: 'linux', is_with_bbr: false, is_available: true, is_eol: false },
-    { id: 71, name: 'CentOS 7.9 (宝塔面板)', os_type: 'linux', is_with_bbr: false, is_available: true, is_eol: false },
-    { id: 33, name: 'AlmaLinux 9', os_type: 'linux', is_with_bbr: true, is_available: true, is_eol: false },
-    { id: 34, name: 'Rocky Linux 9', os_type: 'linux', is_with_bbr: true, is_available: true, is_eol: false },
-    // ===== Windows 系列（仅 2G+ 内存套餐可选）=====
-    { id: 81, name: 'Windows Server 2022', os_type: 'windows', is_with_bbr: false, is_available: true, is_eol: false },
-    { id: 82, name: 'Windows Server 2019', os_type: 'windows', is_with_bbr: false, is_available: true, is_eol: false },
-    { id: 83, name: 'Windows Server 2016', os_type: 'windows', is_with_bbr: false, is_available: true, is_eol: false },
-  ];
+  private get mockOs(): any[] {
+    if (!this._mockOs) {
+      this._mockOs = [
+        // ===== Linux 系列 =====
+        { id: 4, name: 'Debian 12', os_type: 'linux', is_with_bbr: true, is_available: true, is_eol: false },
+        { id: 3, name: 'Debian 11', os_type: 'linux', is_with_bbr: true, is_available: true, is_eol: false },
+        { id: 31, name: 'Ubuntu 22.04', os_type: 'linux', is_with_bbr: true, is_available: true, is_eol: false },
+        { id: 32, name: 'Ubuntu 20.04', os_type: 'linux', is_with_bbr: true, is_available: true, is_eol: false },
+        { id: 1, name: 'CentOS 7.9', os_type: 'linux', is_with_bbr: false, is_available: true, is_eol: false },
+        { id: 71, name: 'CentOS 7.9 (宝塔面板)', os_type: 'linux', is_with_bbr: false, is_available: true, is_eol: false },
+        { id: 33, name: 'AlmaLinux 9', os_type: 'linux', is_with_bbr: true, is_available: true, is_eol: false },
+        { id: 34, name: 'Rocky Linux 9', os_type: 'linux', is_with_bbr: true, is_available: true, is_eol: false },
+        // ===== Windows 系列（仅 2G+ 内存套餐可选）=====
+        { id: 81, name: 'Windows Server 2022', os_type: 'windows', is_with_bbr: false, is_available: true, is_eol: false },
+        { id: 82, name: 'Windows Server 2019', os_type: 'windows', is_with_bbr: false, is_available: true, is_eol: false },
+        { id: 83, name: 'Windows Server 2016', os_type: 'windows', is_with_bbr: false, is_available: true, is_eol: false },
+      ];
+    }
+    return this._mockOs;
+  }
 
   constructor(
     private config: ConfigService,
