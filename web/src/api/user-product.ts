@@ -39,6 +39,10 @@ export const userProductApi = {
   renew(id: number, duration: number) {
     return request.post(`/user-products/${id}/renew`, { duration });
   },
+  // 获取续费价格（返回 { prices: { '1':x, '3':y, '6':z, '12':w } }，单位：元）
+  getRenewPrice(id: number) {
+    return request.get(`/user-products/${id}/renew-price`);
+  },
   getPanelUrl(id: number) {
     return request.get(`/user-products/${id}/panel-url`);
   },

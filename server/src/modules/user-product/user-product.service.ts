@@ -182,6 +182,17 @@ export class UserProductService {
     return { total: list.length, updated, failed };
   }
 
+  // ===== 6.1 获取续费价格（透传雨云 GET /product/rcs/{id}/renew/） =====
+  // 返回 { prices: { '1': x, '3': y, '6': z, '12': w } }（单位：元，对应月数）
+  async getRenewPrice(userProductId: number, userId: number) {
+    const up = await this.getProduct(userProductId, userId);
+    if (!up.upstreamRcsId) throw new BizError('产品未关联上游 RCS');
+    const triggeredBy = `user_id:${userId}`;
+    const res: any = await this.rainyun.getRcsRenewPrice(up.upstreamRcsId, triggeredBy);
+    // 雨云返回 { prices: {'1':..,'3':..,'6':..,'12':..} }
+    return res?.prices ?? res ?? null;
+  }
+
   // ===== 7. 续费：调雨云 rcsAction(id, 'renew', {duration: months})，更新本地 expireAt =====
   // 注：续费的支付由 Order 模块处理（创建续费订单），这里只做上游续费动作。
   // 本方法供 admin 代续费或自动续费用。

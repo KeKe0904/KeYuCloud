@@ -158,6 +158,14 @@ export class UserProductController {
     return ApiResponse.success(up, '同步成功');
   }
 
+  // 获取续费价格（透传雨云 GET /product/rcs/{id}/renew/）
+  // 返回 { prices: { '1': x, '3': y, '6': z, '12': w } }（单位：元）
+  @Get(':id/renew-price')
+  async renewPrice(@CurrentUser('sub') userId: number, @Param('id') id: string) {
+    const prices = await this.userProduct.getRenewPrice(parseInt(id, 10), userId);
+    return ApiResponse.success({ prices });
+  }
+
   // 续费（直接调雨云官方 API：POST /product/rcs/{id}/renew）
   // 请求体：{ duration: number }，单位月，雨云官方仅支持 1/3/6/12 月
   // 注：本接口仅做上游续费动作，扣费由 Order 模块处理（如需走支付流程请走续费订单）

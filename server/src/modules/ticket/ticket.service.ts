@@ -81,6 +81,7 @@ export class TicketService {
     // 官方工单：先调雨云 createWorkorder
     let rainyunWorkorderId: number | null = null;
     let rainyunSyncedAt: Date | null = null;
+    let officialFallbackUsed = false; // 是否使用了降级方案（无 related_product_id）
     if (source === 'official') {
       // 雨云 type 标准化：feedback 降级为 tech（分销账号无 feedback 权限）
       const RAINYUN_TYPE_MAP: Record<string, string> = {
@@ -93,6 +94,8 @@ export class TicketService {
       };
       const rainyunType = RAINYUN_TYPE_MAP[dto.type] || 'tech';
       try {
+        // 第一次尝试：带 related_product_id + is_authed=true
+        // 注：is_authed=true 表示授权雨云客服登录服务器排查
         const wo: any = await this.rainyun.createWorkorder(
           {
             type: rainyunType,
@@ -112,8 +115,48 @@ export class TicketService {
           throw new BadRequestException('雨云创建工单失败：未返回工单 ID');
         }
       } catch (e: any) {
-        this.logger.warn(`用户 ${userId} 创建官方工单失败: ${e.message}`);
-        throw new BadRequestException(`创建官方工单失败：${e.message}`);
+        // 降级方案：雨云 API 返回 500 时，可能是分销商 API Key 不直接拥有
+        // panel_user 名下的 RCS 实例导致。去掉 related_product_id 和 is_authed 重试，
+        // 把产品信息追加到 content 中，让雨云客服仍能看到关联的服务器信息。
+        const errMsg = String(e?.message || '');
+        const isRetryable =
+          errMsg.includes('内部服务器错误') ||
+          errMsg.includes('500') ||
+          errMsg.includes('ERR_BAD_REQUEST');
+        if (!isRetryable) {
+          this.logger.warn(`用户 ${userId} 创建官方工单失败（不可重试）: ${e.message}`);
+          throw new BadRequestException(`创建官方工单失败：${e.message}`);
+        }
+        this.logger.warn(
+          `用户 ${userId} 创建官方工单首次失败（${errMsg}），尝试降级方案：去掉 related_product_id 重试`,
+        );
+        try {
+          // 追加产品信息到 content（雨云客服仍能看到关联服务器）
+          const productInfo = `\n\n---\n关联服务器：${userProduct.upstreamRcsName || ''}（ID: ${userProduct.upstreamRcsId}）\n区域：${userProduct.zoneName || userProduct.zone || ''}`;
+          const wo: any = await this.rainyun.createWorkorder(
+            {
+              type: rainyunType,
+              title: `[本站] ${safeTitle}`.slice(0, 50),
+              content: `${safeContent}${productInfo}`.slice(0, 5000),
+              is_urgent: (dto.priority ?? 0) === 1 ? 1 : 0,
+              is_authed: false,
+            },
+            `user_id:${userId}`,
+          );
+          rainyunWorkorderId = wo?.ID ?? wo?.id ?? null;
+          rainyunSyncedAt = new Date();
+          officialFallbackUsed = true;
+          if (!rainyunWorkorderId) {
+            throw new BadRequestException('雨云创建工单失败：未返回工单 ID');
+          }
+        } catch (e2: any) {
+          this.logger.error(
+            `用户 ${userId} 创建官方工单降级方案也失败: ${e2.message}`,
+          );
+          throw new BadRequestException(
+            `创建官方工单失败：${e2.message}（已尝试降级方案）`,
+          );
+        }
       }
     }
 
@@ -149,11 +192,14 @@ export class TicketService {
 
     // 官方工单：写入系统消息提示
     if (source === 'official' && rainyunWorkorderId) {
+      const fallbackNote = officialFallbackUsed
+        ? '\n\n注：由于分销账号权限限制，本工单未直接关联雨云产品 ID，但已在工单内容中附上服务器信息。雨云客服仍可正常处理。'
+        : '';
       await this.prisma.ticketMessage.create({
         data: {
           ticketId: ticket.id,
           fromType: 'system',
-          content: `本工单已直接提交至雨云官方（官方工单 ID: ${rainyunWorkorderId}），雨云客服将处理。本站仅做同步展示。`,
+          content: `本工单已直接提交至雨云官方（官方工单 ID: ${rainyunWorkorderId}），雨云客服将处理。本站仅做同步展示。${fallbackNote}`,
         },
       });
     }

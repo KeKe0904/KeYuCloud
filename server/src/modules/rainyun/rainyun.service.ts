@@ -769,7 +769,8 @@ export class RainyunService implements OnModuleInit {
     }
 
     // RCS actions (start/stop/restart/renew/...)
-    const rcsActionMatch = path.match(/^\/product\/rcs\/(\d+)\/(start|stop|restart|renew|free|reset_password|reinstall)$/);
+    // 注：renew 端点带尾部斜杠（/renew/），其他操作不带
+    const rcsActionMatch = path.match(/^\/product\/rcs\/(\d+)\/(start|stop|restart|renew|free|reset_password|reinstall)\/?$/);
     if (rcsActionMatch) {
       const id = Number(rcsActionMatch[1]);
       const action = rcsActionMatch[2];
@@ -793,6 +794,24 @@ export class RainyunService implements OnModuleInit {
         return { task_id: ++this.mockState.nextTaskId };
       }
       return { success: true };
+    }
+
+    // RCS 续费价格查询（GET /product/rcs/{id}/renew/）
+    const rcsRenewPriceMatch = path.match(/^\/product\/rcs\/(\d+)\/renew\/?$/);
+    if (rcsRenewPriceMatch && method === 'GET') {
+      const id = Number(rcsRenewPriceMatch[1]);
+      const inst = this.mockState.rcsInstances.get(id);
+      if (!inst) throw new BadRequestException('RCS 不存在');
+      // Mock：返回各时长续费价格（基于 plan 价格 + 周期折扣）
+      const basePrice = inst.plan?.price || 10;
+      return {
+        prices: {
+          '1': basePrice,
+          '3': Math.round(basePrice * 3 * 0.9 * 100) / 100,
+          '6': Math.round(basePrice * 6 * 0.8 * 100) / 100,
+          '12': Math.round(basePrice * 12 * 0.7 * 100) / 100,
+        },
+      };
     }
 
     // ============ panel_users ============
@@ -1215,8 +1234,22 @@ export class RainyunService implements OnModuleInit {
   }
 
   // RCS 操作（start/stop/reboot/changeos/reset-password/free 等）
+  // 注：雨云 API 的 renew 端点需要尾部斜杠（POST /product/rcs/{id}/renew/），
+  //     其他操作（start/stop/reboot 等）不需要尾部斜杠。
+  //     实测：不带尾部斜杠调用 renew 会返回 404 或 500 错误。
   async rcsAction(id: number, action: string, body?: any, triggeredBy?: string) {
-    return this.request('POST', `/product/rcs/${id}/${action}`, body, null, 'rcs', triggeredBy);
+    // renew 端点需要尾部斜杠
+    const path = action === 'renew'
+      ? `/product/rcs/${id}/renew/`
+      : `/product/rcs/${id}/${action}`;
+    return this.request('POST', path, body, null, 'rcs', triggeredBy);
+  }
+
+  // 获取 RCS 续费价格
+  // 雨云 API：GET /product/rcs/{id}/renew/（带尾部斜杠）
+  // 返回各时长的续费价格（含 1/3/6/12 月）
+  async getRcsRenewPrice(id: number, triggeredBy?: string) {
+    return this.request('GET', `/product/rcs/${id}/renew/`, null, null, 'rcs', triggeredBy);
   }
 
   // 重装系统：雨云 POST /product/rcs/{id}/reinstall

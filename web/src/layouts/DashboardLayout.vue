@@ -251,7 +251,11 @@ function goNotifications() {
   min-height: 100vh;
   background: transparent;
   max-width: 100vw;
-  overflow-x: hidden;
+  // 注：使用 overflow-x: clip 而非 hidden
+  // overflow-x: hidden 会让 overflow-y 隐式变为 auto，建立滚动容器，
+  // 从而破坏子元素（侧边栏）position: sticky 相对视口的定位。
+  // overflow-x: clip 只裁剪横向溢出，不建立滚动容器，不破坏 sticky。
+  overflow-x: clip;
 }
 
 // ============ 侧边栏（苹果玻璃质感）============

@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { userProductApi } from '@/api/user-product';
+import { authApi } from '@/api/auth';
+import { useAuthStore } from '@/stores/auth';
 
 const router = useRouter();
+const authStore = useAuthStore();
 
 // 列表数据
 const loading = ref(false);
@@ -43,9 +46,12 @@ const syncLoading = ref<Record<number, boolean>>({});
 const renewDialog = reactive({
   visible: false,
   loading: false,
+  priceLoading: false,
   productId: 0,
   productName: '',
   duration: 1,
+  prices: null as Record<string, number> | null,
+  balance: 0,
 });
 
 // 续费时长选项（雨云官方仅支持 1/3/6/12 月）
@@ -55,6 +61,25 @@ const durationOptions = [
   { label: '6 个月', value: 6 },
   { label: '1 年', value: 12 },
 ];
+
+// 当前选中时长对应的续费价格
+const currentRenewPrice = computed(() => {
+  if (!renewDialog.prices) return null;
+  const p = renewDialog.prices[String(renewDialog.duration)];
+  return typeof p === 'number' ? p : null;
+});
+
+// 余额是否充足
+const isBalanceEnough = computed(() => {
+  if (currentRenewPrice.value == null) return true; // 价格未加载完成时不阻止
+  return renewDialog.balance >= currentRenewPrice.value;
+});
+
+// 余额不足金额
+const shortageAmount = computed(() => {
+  if (currentRenewPrice.value == null) return 0;
+  return Math.max(0, currentRenewPrice.value - renewDialog.balance);
+});
 
 // 格式化金额
 function formatMoney(val: number | string) {
@@ -157,25 +182,105 @@ async function onSync(row: any) {
   }
 }
 
-// 打开续费弹窗
-function openRenewDialog(row: any) {
+// 打开续费弹窗：同时拉取续费价格 + 用户最新余额
+async function openRenewDialog(row: any) {
   renewDialog.productId = row.id;
   renewDialog.productName = row.name || row.productName || '产品';
   renewDialog.duration = 1;
+  renewDialog.prices = null;
+  renewDialog.balance = Number(authStore.user?.balance || 0);
   renewDialog.visible = true;
+
+  // 并行拉取续费价格 + 用户最新 profile（刷新余额）
+  renewDialog.priceLoading = true;
+  try {
+    const [priceRes, profileRes] = await Promise.all([
+      userProductApi.getRenewPrice(row.id).catch((e) => {
+        // 价格加载失败时不阻断弹窗，仅记录 null（按钮允许尝试续费）
+        console.warn('获取续费价格失败:', e);
+        return null;
+      }),
+      authApi.profile().catch(() => null),
+    ]);
+    if (priceRes?.data?.prices) {
+      renewDialog.prices = priceRes.data.prices;
+    } else if (priceRes?.data) {
+      // 兼容后端可能直接返回 prices 对象
+      renewDialog.prices = (priceRes.data as any).prices || (priceRes.data as any);
+    }
+    if (profileRes?.data?.balance != null) {
+      renewDialog.balance = Number(profileRes.data.balance || 0);
+      // 同步更新 authStore 中的余额，避免其他页面显示旧值
+      if (authStore.user) {
+        authStore.user = { ...authStore.user, balance: Number(profileRes.data.balance) };
+      }
+    }
+  } finally {
+    renewDialog.priceLoading = false;
+  }
+}
+
+// 跳转到充值页面
+function goToRecharge() {
+  renewDialog.visible = false;
+  router.push('/dashboard/finance');
+}
+
+// 余额不足弹窗（可点击"立即去充值"）
+async function showInsufficientBalanceDialog() {
+  try {
+    await ElMessageBox.confirm(
+      `当前账户余额 ${formatMoney(renewDialog.balance)}，续费需 ${formatMoney(currentRenewPrice.value || 0)}，差额 ${formatMoney(shortageAmount.value)}。请先充值后再续费。`,
+      '余额不足',
+      {
+        confirmButtonText: '立即去充值',
+        cancelButtonText: '稍后再说',
+        type: 'warning',
+        customClass: 'keke-confirm-box',
+        confirmButtonClass: 'el-button--warning',
+      },
+    );
+    goToRecharge();
+  } catch {
+    // 用户取消
+  }
 }
 
 // 确认续费
 async function confirmRenew() {
   if (!renewDialog.productId) return;
+  // 余额检查：若价格已加载且余额不足，弹窗提示并阻止续费
+  if (currentRenewPrice.value != null && !isBalanceEnough.value) {
+    showInsufficientBalanceDialog();
+    return;
+  }
   renewDialog.loading = true;
   try {
     await userProductApi.renew(renewDialog.productId, renewDialog.duration);
     ElMessage.success('续费成功');
     renewDialog.visible = false;
+    // 续费后刷新用户余额（雨云侧扣费后本地不一定同步，但刷新以防下次显示旧值）
+    authStore.fetchProfile().catch(() => {});
     await loadList();
-  } catch (e) {
-    // 错误已由拦截器统一提示
+  } catch (e: any) {
+    // 检测错误信息中是否含"余额"关键词，若是则弹出余额不足弹窗
+    const errMsg = String(e?.message || e?.response?.data?.message || '');
+    if (errMsg.includes('余额') || errMsg.includes('balance') || errMsg.includes(' insufficient')) {
+      // 拉取最新余额后弹窗
+      try {
+        const profileRes = await authApi.profile();
+        if (profileRes?.data?.balance != null) {
+          renewDialog.balance = Number(profileRes.data.balance || 0);
+          if (authStore.user) {
+            authStore.user = { ...authStore.user, balance: Number(profileRes.data.balance) };
+          }
+        }
+      } catch {
+        // ignore
+      }
+      showInsufficientBalanceDialog();
+    }
+    // 其他错误已由拦截器统一提示
   } finally {
     renewDialog.loading = false;
   }
@@ -335,7 +440,7 @@ onMounted(() => {
     <el-dialog
       v-model="renewDialog.visible"
       title="产品续费"
-      width="440px"
+      width="460px"
       :close-on-click-modal="false"
     >
       <div class="renew-dialog-body">
@@ -343,23 +448,64 @@ onMounted(() => {
           <el-icon><InfoFilled /></el-icon>
           <span>续费产品：{{ renewDialog.productName }}</span>
         </div>
+
+        <!-- 续费时长选择 + 价格展示 -->
         <el-form label-width="90px" label-position="right">
           <el-form-item label="续费时长">
-            <el-select v-model="renewDialog.duration" style="width: 100%">
+            <el-select v-model="renewDialog.duration" style="width: 100%" :loading="renewDialog.priceLoading">
               <el-option
                 v-for="opt in durationOptions"
                 :key="opt.value"
-                :label="opt.label"
+                :label="opt.label + (renewDialog.prices && renewDialog.prices[String(opt.value)] != null
+                  ? ` · ¥${Number(renewDialog.prices[String(opt.value)]).toFixed(2)}`
+                  : '')"
                 :value="opt.value"
               />
             </el-select>
           </el-form-item>
+
+          <!-- 价格汇总区 -->
+          <div class="renew-summary" v-if="renewDialog.priceLoading">
+            <el-icon class="is-loading"><Loading /></el-icon>
+            <span>正在获取续费价格...</span>
+          </div>
+          <div class="renew-summary" v-else-if="currentRenewPrice != null">
+            <div class="summary-row">
+              <span class="summary-label">续费价格</span>
+              <span class="summary-value price">{{ formatMoney(currentRenewPrice) }}</span>
+            </div>
+            <div class="summary-row">
+              <span class="summary-label">账户余额</span>
+              <span class="summary-value" :class="{ 'is-short': !isBalanceEnough }">{{ formatMoney(renewDialog.balance) }}</span>
+            </div>
+            <div class="summary-row summary-total" v-if="!isBalanceEnough">
+              <span class="summary-label">还需充值</span>
+              <span class="summary-value shortage">{{ formatMoney(shortageAmount) }}</span>
+            </div>
+          </div>
+          <div class="renew-summary renew-summary--hint" v-else>
+            <el-icon><WarningFilled /></el-icon>
+            <span>未能获取续费价格，可在确认后由系统尝试续费</span>
+          </div>
         </el-form>
       </div>
 
       <template #footer>
         <el-button @click="renewDialog.visible = false">取消</el-button>
-        <el-button class="btn-gold" :loading="renewDialog.loading" @click="confirmRenew">
+        <el-button
+          v-if="!isBalanceEnough && currentRenewPrice != null"
+          class="btn-warning"
+          @click="goToRecharge"
+        >
+          <el-icon><Wallet /></el-icon>
+          立即去充值
+        </el-button>
+        <el-button
+          class="btn-gold"
+          :loading="renewDialog.loading"
+          :disabled="!isBalanceEnough && currentRenewPrice != null"
+          @click="confirmRenew"
+        >
           确认续费
         </el-button>
       </template>
@@ -540,6 +686,88 @@ onMounted(() => {
   .el-icon {
     color: var(--gold-400);
     font-size: 16px;
+  }
+}
+
+// 续费价格汇总区
+.renew-summary {
+  margin-top: 8px;
+  padding: 14px 16px;
+  background: var(--bg-subtle);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 56px;
+
+  // 加载中状态
+  &:has(.is-loading) {
+    flex-direction: row;
+    align-items: center;
+    color: var(--text-tertiary);
+    font-size: 12px;
+    .el-icon { font-size: 14px; }
+  }
+
+  // 提示状态（价格获取失败）
+  &--hint {
+    flex-direction: row;
+    align-items: center;
+    color: var(--text-tertiary);
+    font-size: 12px;
+    .el-icon {
+      color: var(--warning);
+      font-size: 14px;
+    }
+  }
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+
+  .summary-label {
+    color: var(--text-secondary);
+  }
+
+  .summary-value {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-primary);
+    font-weight: 500;
+
+    &.price {
+      color: var(--gold-400);
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    &.is-short {
+      color: var(--danger);
+    }
+
+    &.shortage {
+      color: var(--danger);
+      font-weight: 600;
+    }
+  }
+
+  &.summary-total {
+    padding-top: 8px;
+    border-top: 1px dashed var(--border-base);
+    margin-top: 4px;
+  }
+}
+
+// 余额不足时的"立即去充值"按钮
+.btn-warning {
+  background: var(--warning, #f59e0b) !important;
+  border-color: var(--warning, #f59e0b) !important;
+  color: #fff !important;
+
+  &:hover {
+    opacity: 0.9;
   }
 }
 
