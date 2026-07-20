@@ -250,7 +250,7 @@ pull_latest_code() {
   # 1. 检查工作区是否干净（.env / .deploy-meta.json 等本地文件除外）
   info "检查 git 工作区状态..."
   local git_status
-  git_status=$(git status --porcelain | grep -vE '^\s*[AM?]+\s+(server/\.env|deploy/\.deploy-meta\.json|deploy/\.update-(lock|state|step|logs)|deploy/\.backups|deploy/\.wizard-done)' || echo "")
+  git_status=$(git status --porcelain | grep -vE '^\s*[AM?]+\s+(server/\.env|deploy/\.deploy-meta\.json|deploy/\.deploy-done|deploy/\.update-(lock|state|step|logs)|deploy/\.backups)' || echo "")
 
   local has_local_changes=0
   if [[ -n "$git_status" ]]; then
@@ -296,7 +296,7 @@ pull_latest_code() {
   if [[ $has_local_changes -eq 1 ]]; then
     info "暂存本地改动..."
     if git stash push -u -m "update-$(date +%Y%m%d-%H%M%S)" \
-        -- $(git status --porcelain | awk '{print $2}' | grep -vE '^(server/\.env|deploy/\.deploy-meta\.json|deploy/\.update-|deploy/\.backups|deploy/\.wizard-done)' | tr '\n' ' ') \
+        -- $(git status --porcelain | awk '{print $2}' | grep -vE '^(server/\.env|deploy/\.deploy-meta\.json|deploy/\.deploy-done|deploy/\.update-|deploy/\.backups)' | tr '\n' ' ') \
         >>"$UPDATE_LOG" 2>&1; then
       stashed=1
       info "本地改动已 stash"

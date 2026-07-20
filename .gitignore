@@ -51,8 +51,7 @@ uploads/
 
 # ===== 部署运行时文件 =====
 deploy/.deploy-meta.json
-deploy/.wizard-done
-deploy/setup-wizard/node_modules/
+deploy/.deploy-done
 # update.sh 运行时生成的文件（锁/状态/步骤/日志/备份/finish 脚本）
 deploy/.update-lock
 deploy/.update-state

@@ -1,33 +1,41 @@
 #!/usr/bin/env bash
 # ============================================================================
-# 雨云服务器分销平台 - 一键部署脚本 (v1.1.0)
+# 雨云服务器分销平台 - 一键部署脚本 (v2.0.0)
 # ----------------------------------------------------------------------------
-# 功能：
+# 功能：在终端完成全部部署，无需任何网页向导
 #   1. 检测/安装/升级环境依赖（Node.js LTS / MySQL / Redis / Nginx / PM2 / Git）
 #   2. 自动拉取/更新仓库代码
-#   3. 交互式数据库配置（密码必填，其他可默认）
-#   4. 交互式域名配置（自动检测连通性，可重试/跳过）
-#   5. 交互式 SSL 配置（跳过 / 已有证书 / 自动申请 Let's Encrypt）
-#   6. 构建 + 启动网页外部向导（向导完成管理员账号配置与前后端启动）
+#   3. 交互式数据库配置（建库 → 直接用于本项目，无需任何后续连接配置）
+#   4. 雨云 API Key 配置（可跳过，使用 MOCK 模式）
+#   5. 域名配置（自动检测连通性，可重试/跳过）
+#   6. SSL 配置（跳过 / 已有证书 / 自动申请 Let's Encrypt）
+#   7. 生成 .env（一次性写入所有收集的配置，包括 DATABASE_URL）
+#   8. 构建前后端
+#   9. 数据库迁移（prisma migrate deploy + db seed）
+#  10. 配置超级管理员账号（在终端交互输入）
+#  11. 配置 Nginx 反向代理（前端静态 + /api/ 反代）
+#  12. 启动 PM2 后端进程 + 健康检查
+#  13. 部署完成提示 + 防火墙放行
 #
 # 用法：
 #   chmod +x deploy.sh && ./deploy.sh                              # 交互式
-#   DEPLOY_NONINTERACTIVE=1 DB_USER=... DB_PASS=... ./deploy.sh    # 非交互式（CI）
+#   DEPLOY_NONINTERACTIVE=1 DB_PASS=... ADMIN_PASSWORD=... ./deploy.sh   # 非交互式（CI）
 #
 # 非交互式环境变量（DEPLOY_NONINTERACTIVE=1 时生效）：
-#   DB_NAME          数据库名（默认 rainyun_reseller）
-#   DB_USER          数据库用户（默认 rainyun）
-#   DB_PASS          数据库密码（必填）
-#   DB_HOST          数据库主机（默认 127.0.0.1）
-#   DB_PORT          数据库端口（默认 3306，MySQL 软件默认端口）
-#   DOMAIN           站点域名（可留空）
-#   SSL_MODE         SSL 模式（none/custom/letsencrypt，默认 none）
-#   SITE_URL         站点完整 URL（覆盖 DOMAIN+SSL_MODE 计算）
-#   REPO_URL         Git 仓库 URL
-#   REPO_BRANCH      Git 分支（默认 main）
-#   APP_DIR          应用目录（默认 /opt/rainyun-reseller）
-#   WIZARD_PORT      向导端口（默认 8888，仅监听 127.0.0.1，由 Nginx 反代 /setup-wizard/）
-#   RAINYUN_API_KEY  雨云 API Key（可留空，使用 MOCK）
+#   DB_NAME              数据库名（默认 rainyun_reseller）
+#   DB_USER              数据库用户（默认 rainyun）
+#   DB_PASS              数据库密码（必填）
+#   DB_HOST              数据库主机（默认 127.0.0.1）
+#   DB_PORT              数据库端口（默认 3306）
+#   RAINYUN_API_KEY      雨云 API Key（可留空，使用 MOCK）
+#   DOMAIN               站点域名（可留空）
+#   SSL_MODE             SSL 模式（none/custom/letsencrypt，默认 none）
+#   ADMIN_USERNAME       管理员用户名（默认 admin）
+#   ADMIN_PASSWORD       管理员密码（必填）
+#   ADMIN_EMAIL          管理员邮箱（可留空）
+#   REPO_URL             Git 仓库 URL
+#   REPO_BRANCH          Git 分支（默认 main）
+#   APP_DIR              应用目录（默认 /opt/rainyun-reseller）
 #
 # 支持系统：Ubuntu 20.04+ / Debian 11+ / CentOS 8+ / RHEL 9+
 # ============================================================================
@@ -38,18 +46,14 @@ set -euo pipefail
 DEPLOY_NONINTERACTIVE="${DEPLOY_NONINTERACTIVE:-0}"
 
 # ---------- 全局变量 ----------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${APP_DIR:-/opt/rainyun-reseller}"
 REPO_URL="${REPO_URL:-https://github.com/your-org/rainyun-reseller.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 # 端口策略（全部使用软件默认端口）：
 #   - 前端（Nginx）：80（HTTP）/ 443（HTTPS，如配置 SSL）
 #   - 后端（NestJS）：3001（仅 127.0.0.1，由 Nginx 反代）
-#   - 向导（setup-wizard）：8888（仅 127.0.0.1，由 Nginx 反代 /setup-wizard/ 路径）
 #   - MySQL：3306 / Redis：6379（软件默认端口）
-WIZARD_PORT="${WIZARD_PORT:-8888}"
 LOG_FILE="/var/log/rainyun-deploy.log"
-STEP_FILE="/tmp/rainyun-deploy-step"
 
 # 颜色（仅在交互式时启用）
 # 关键：用 $'...' ANSI-C quoting，让变量值是真正的 ANSI 转义符（ESC 字符），
@@ -117,13 +121,7 @@ pkg_update() {
 # 提示输入（带默认值）
 # 非交互模式下从同名环境变量读取，若未设置则使用默认值
 prompt() {
-  local msg="$1" default="${2:-}" var env_name
-  # 从 msg 推断环境变量名（简化处理：通过 caller 上下文由调用方提供）
-  if [[ "$DEPLOY_NONINTERACTIVE" == "1" ]]; then
-    # 非交互模式：调用方应直接传值，这里返回默认值
-    echo "$default"
-    return
-  fi
+  local msg="$1" default="${2:-}" var
   if [[ -n "$default" ]]; then
     read -rp "$(echo -e "${C_CYAN}${msg}${C_RESET} [${default}]: ")" var
     echo "${var:-$default}"
@@ -195,10 +193,6 @@ confirm() {
   read -rp "$(echo -e "${C_CYAN}${msg}${C_RESET} [${default}/n]: ")" ans
   [[ "${ans:-$default}" =~ ^[Yy]$ ]]
 }
-
-# 记录进度步骤
-save_step() { echo "$1" > "$STEP_FILE"; }
-get_step()  { [[ -f "$STEP_FILE" ]] && cat "$STEP_FILE" || echo "0"; }
 
 # ============================================================================
 # 步骤 1：环境与依赖检测/安装/升级
@@ -304,15 +298,7 @@ install_deps() {
     systemctl enable nginx 2>/dev/null || true
   fi
 
-  # ----- 配置非默认端口（提升安全性，避免默认端口被扫描）-----
-  configure_service_ports
-
-  log "依赖检测与安装完成"
-}
-
-# 检测 MySQL / Redis 服务状态（使用软件默认端口：MySQL 3306 / Redis 6379）
-configure_service_ports() {
-  # ===== MySQL 默认端口 3306 =====
+  # ----- 检测服务端口（使用软件默认端口：MySQL 3306 / Redis 6379）-----
   if has_cmd mysql; then
     local cur_port
     cur_port="$(mysql -uroot -N -e 'SHOW VARIABLES LIKE "port";' 2>/dev/null | awk '{print $2}')"
@@ -322,8 +308,6 @@ configure_service_ports() {
       warn "无法读取 MySQL 端口，请确认 MySQL 服务已启动"
     fi
   fi
-
-  # ===== Redis 默认端口 6379 =====
   if has_cmd redis-cli; then
     if redis-cli -p 6379 ping 2>/dev/null | grep -q PONG; then
       info "Redis 监听端口: 6379（软件默认）"
@@ -331,6 +315,8 @@ configure_service_ports() {
       warn "Redis 6379 端口未响应，请确认 Redis 服务已启动"
     fi
   fi
+
+  log "依赖检测与安装完成"
 }
 
 # ============================================================================
@@ -395,10 +381,10 @@ pull_repo() {
 }
 
 # ============================================================================
-# 步骤 3：数据库配置
+# 步骤 3：数据库配置（建库后直接用于本项目，无需任何后续连接配置）
 # ============================================================================
 configure_db() {
-  step "步骤 3：数据库配置"
+  step "步骤 3：数据库配置（建库即用于本项目）"
 
   if ! has_cmd mysql; then
     err "MySQL 未安装，无法继续。请先安装 MySQL 8"
@@ -423,6 +409,13 @@ configure_db() {
     exit 1
   fi
 
+  echo -e "${C_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+  echo -e "${C_BOLD}${C_YELLOW}📌 数据库配置说明${C_RESET}"
+  echo -e "${C_CYAN}本步骤将创建一个新的 MySQL 数据库和用户。${C_RESET}"
+  echo -e "${C_BOLD}${C_GREEN}创建完成后将直接用于本项目（自动写入 .env 的 DATABASE_URL）${C_RESET}"
+  echo -e "${C_BOLD}${C_GREEN}无需任何后续网页或终端再次配置数据库连接${C_RESET}"
+  echo -e "${C_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+
   # 业务数据库配置
   local db_name db_user db_pwd db_host db_port
   db_name="$(env_or_prompt 'DB_NAME' '数据库名' 'rainyun_reseller')"
@@ -439,6 +432,7 @@ configure_db() {
     info "非交互模式：从 DB_PASS 环境变量读取数据库密码"
   else
     echo -e "${C_CYAN}请为业务数据库用户 ${db_user} 设置密码（必须手动填写，建议 16 位以上强密码）${C_RESET}"
+    echo -e "${C_YELLOW}该密码将作为本项目数据库连接密码（写入 .env 的 DATABASE_URL）${C_RESET}"
     echo -e "${C_YELLOW}为避免输入错误，需要输入两次确认${C_RESET}"
     db_pwd="$(prompt_password "$db_user 密码" "" --confirm)"
   fi
@@ -465,16 +459,23 @@ SQL
   # shadow 数据库（prisma migrate 需要）
   "${mysql_admin_cmd[@]}" -e "CREATE DATABASE IF NOT EXISTS \`${db_name}_shadow\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON \`${db_name}_shadow\`.* TO '$db_user'@'%'; GRANT ALL PRIVILEGES ON \`${db_name}_shadow\`.* TO '$db_user'@'localhost'; FLUSH PRIVILEGES;" >/dev/null 2>&1
 
-  info "数据库与用户创建成功"
+  log "✓ 数据库 \`$db_name\` 与用户 \`$db_user\` 创建成功"
 
   # 测试业务用户连接
   if ! mysql -h"$db_host" -P"$db_port" -u"$db_user" -p"$db_pwd" -e "USE \`$db_name\`; SELECT 1;" >/dev/null 2>&1; then
     err "业务用户连接失败，请检查配置"
     exit 1
   fi
-  info "业务用户连接验证成功"
+  log "✓ 业务用户连接验证成功"
 
-  # 保存到全局变量
+  echo -e "${C_BOLD}${C_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+  echo -e "${C_BOLD}${C_GREEN}✅ 数据库已就绪${C_RESET}"
+  echo -e "${C_BOLD}${C_GREEN}   该数据库将作为本项目唯一数据库，自动写入 .env${C_RESET}"
+  echo -e "${C_BOLD}${C_GREEN}   DATABASE_URL=mysql://${db_user}:***@${db_host}:${db_port}/${db_name}${C_RESET}"
+  echo -e "${C_BOLD}${C_GREEN}   无需再在任何地方二次配置数据库连接${C_RESET}"
+  echo -e "${C_BOLD}${C_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+
+  # 保存到全局变量（供 generate_env 使用）
   DB_NAME="$db_name"; DB_USER="$db_user"; DB_PWD="$db_pwd"
   DB_HOST="$db_host"; DB_PORT="$db_port"
 
@@ -482,10 +483,60 @@ SQL
 }
 
 # ============================================================================
-# 步骤 4：域名配置
+# 步骤 4：雨云 API Key 配置（可跳过，跳过则使用 MOCK 模式）
+# ============================================================================
+configure_api_key() {
+  step "步骤 4：雨云 API Key 配置"
+
+  RAINYUN_API_KEY=""
+  RAINYUN_API_BASE="https://api.v2.rainyun.com"
+  RAINYUN_MOCK="true"
+
+  if [[ "$DEPLOY_NONINTERACTIVE" == "1" ]]; then
+    if [[ -n "${RAINYUN_API_KEY:-}" ]]; then
+      RAINYUN_API_KEY="$RAINYUN_API_KEY"
+      RAINYUN_MOCK="false"
+      info "非交互模式：从 RAINYUN_API_KEY 读取 API Key"
+    else
+      info "非交互模式：未配置 API Key，使用 MOCK 模式"
+    fi
+    return
+  fi
+
+  echo -e "${C_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+  echo -e "${C_BOLD}${C_YELLOW}📌 雨云 API Key 配置${C_RESET}"
+  echo -e "${C_CYAN}本平台通过雨云官方 API 对接上游服务（服务器/NAT 等）${C_RESET}"
+  echo -e "${C_CYAN}需要填写雨云官方 API Key 才能正常运营${C_RESET}"
+  echo -e "${C_CYAN}可在 https://app.rainyun.com/account/api 获取${C_RESET}"
+  echo -e "${C_YELLOW}若暂时跳过，将使用 MOCK 模式（仅用于测试，无法实际对接上游）${C_RESET}"
+  echo -e "${C_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+
+  if confirm "是否现在配置雨云 API Key？" "y"; then
+    local api_key api_base
+    # 直接读取（不回显，使用 prompt_password 的不回显机制，但不需要确认）
+    api_key="$(prompt_password "请输入雨云 API Key（16-256 字符）" "")"
+
+    if [[ ${#api_key} -lt 16 ]]; then
+      warn "API Key 长度不足 16 字符，疑似无效，将使用 MOCK 模式"
+      return
+    fi
+
+    api_base="$(prompt '雨云 API Base URL' 'https://api.v2.rainyun.com')"
+
+    RAINYUN_API_KEY="$api_key"
+    RAINYUN_API_BASE="$api_base"
+    RAINYUN_MOCK="false"
+    log "✓ API Key 已配置（${#api_key} 字符），将在生成 .env 时写入"
+  else
+    log "已跳过 API Key 配置，使用 MOCK 模式（仅用于测试）"
+  fi
+}
+
+# ============================================================================
+# 步骤 5：域名配置
 # ============================================================================
 configure_domain() {
-  step "步骤 4：域名配置"
+  step "步骤 5：域名配置"
 
   if [[ "$DEPLOY_NONINTERACTIVE" == "1" ]]; then
     DOMAIN="${DOMAIN:-}"
@@ -536,7 +587,7 @@ configure_domain() {
     if confirm "域名未连通，是否重试？" "y"; then
       continue
     else
-      if confirm "是否跳过域名配置（后续可在网页向导中再次配置）？" "y"; then
+      if confirm "是否仍使用该域名继续（已配置 DNS 但本机检测不到时可选）？" "y"; then
         DOMAIN="$domain"
         break
       else
@@ -550,10 +601,10 @@ configure_domain() {
 }
 
 # ============================================================================
-# 步骤 5：SSL 配置
+# 步骤 6：SSL 配置
 # ============================================================================
 configure_ssl() {
-  step "步骤 5：SSL 配置"
+  step "步骤 6：SSL 配置"
 
   SSL_MODE="none"
   SSL_CERT=""
@@ -615,10 +666,10 @@ configure_ssl() {
 }
 
 # ============================================================================
-# 步骤 6：生成 .env、构建、配置 Nginx、启动向导
+# 步骤 7：生成 .env（一次性写入所有收集的配置）
 # ============================================================================
 generate_env() {
-  step "步骤 6：生成配置文件"
+  step "步骤 7：生成配置文件 .env"
 
   cd "$APP_DIR/server"
 
@@ -629,10 +680,7 @@ generate_env() {
   # AES_SECRET 要求恰好 32 字节（32 个字符），用 openssl rand -hex 16 生成 32 个 hex 字符
   aes_secret="$(openssl rand -hex 16)"
 
-  # 预先计算 UPDATE_REPO（owner/repo 格式），避免在 heredoc 中展开未定义变量
-  # 注意：heredoc 中的 UPDATE_REPO=xxx 只是写入文件的内容，不会在 shell 中执行赋值
-  # 所以必须在 heredoc 之前计算好，再在 heredoc 中引用 $UPDATE_REPO
-  # 优先从 git remote 获取真实 URL（避免 REPO_URL 默认占位符 your-org/rainyun-reseller）
+  # 预先计算 UPDATE_REPO（owner/repo 格式）
   local git_remote_url=""
   git_remote_url="$(cd "$APP_DIR" && git remote get-url origin 2>/dev/null || echo "")"
   if [[ -z "$git_remote_url" ]]; then
@@ -640,7 +688,6 @@ generate_env() {
   fi
   local update_repo="${git_remote_url#https://github.com/}"
   update_repo="${update_repo%.git}"
-  # 如果是 SSH 格式（git@github.com:owner/repo.git），也处理一下
   update_repo="${update_repo#git@github.com:}"
 
   # site_url 使用默认端口（80 HTTP / 443 HTTPS，不在 URL 中显示端口号）
@@ -659,7 +706,7 @@ generate_env() {
 
   cat > .env <<EOF
 # ===========================================
-# 雨云服务器分销平台 v1.1.0 - 生产配置
+# 雨云服务器分销平台 v2.0.0 - 生产配置
 # 由 deploy.sh 自动生成于 $(date)
 # ===========================================
 
@@ -668,7 +715,7 @@ NODE_ENV=production
 PORT=3001
 CORS_ORIGIN=${site_url}
 
-# ===== MySQL 数据库 =====
+# ===== MySQL 数据库（步骤 3 创建，直接用于本项目，无需再次配置）=====
 DATABASE_URL="mysql://${DB_USER}:${DB_PWD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?schema=public"
 SHADOW_DATABASE_URL="mysql://${DB_USER}:${DB_PWD}@${DB_HOST}:${DB_PORT}/${DB_NAME}_shadow?schema=public"
 
@@ -685,9 +732,9 @@ ADMIN_JWT_SECRET=${admin_jwt_secret}
 ADMIN_JWT_EXPIRES_IN=1d
 
 # ===== 雨云上游 =====
-RAINYUN_API_KEY=
-RAINYUN_API_BASE=https://api.v2.rainyun.com
-RAINYUN_MOCK=true
+RAINYUN_API_KEY=${RAINYUN_API_KEY}
+RAINYUN_API_BASE=${RAINYUN_API_BASE}
+RAINYUN_MOCK=${RAINYUN_MOCK}
 
 # ===== 易支付（需在管理后台配置）=====
 EPAY_PID=1000
@@ -703,7 +750,7 @@ AES_SECRET=${aes_secret}
 SITE_NAME=云服分销平台
 SITE_URL=${site_url}
 
-# ===== 管理员初始账号（向导中配置）=====
+# ===== 管理员初始账号（步骤 9 创建）=====
 INIT_ADMIN_USERNAME=admin
 INIT_ADMIN_PASSWORD=
 
@@ -719,13 +766,12 @@ EOF
 
   chmod 600 .env
   info ".env 文件已生成 (权限 600)"
+  info "DATABASE_URL 已使用步骤 3 创建的数据库，无需任何后续配置"
 
-  # 生成向导一次性令牌（用于保护网页向导 API，防止未授权访问）
-  local wizard_token
-  wizard_token="$(openssl rand -hex 16)"
-  info "已生成向导令牌（用于网页向导认证）"
+  # 保存站点 URL 到全局变量（供 setup_admin / start_services 输出使用）
+  SITE_URL="$site_url"
 
-  # 保存部署元信息供向导使用
+  # 保存部署元信息（用于后续运维查询）
   cat > "$APP_DIR/deploy/.deploy-meta.json" <<EOF
 {
   "appDir": "$APP_DIR",
@@ -738,8 +784,7 @@ EOF
   "dbHost": "$DB_HOST",
   "dbPort": "$DB_PORT",
   "siteUrl": "$site_url",
-  "wizardPort": $WIZARD_PORT,
-  "wizardToken": "$wizard_token",
+  "rainyunMock": "$RAINYUN_MOCK",
   "deployedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF
@@ -747,18 +792,18 @@ EOF
   log "配置文件生成完成"
 }
 
-# 构建前后端
+# ============================================================================
+# 步骤 8：构建前后端
+# ============================================================================
 build_app() {
-  step "步骤 7：构建前后端"
+  step "步骤 8：构建前后端"
 
   cd "$APP_DIR/server"
   info "构建后端..."
 
   # 关键：确保 devDependencies 已安装（@nestjs/cli 在 devDependencies 中）
-  # 兼容旧版 deploy.sh 可能用 npm ci --omit=dev 安装的情况
   if [[ ! -x "node_modules/.bin/nest" ]]; then
     warn "未找到 nest CLI（node_modules/.bin/nest），重新安装完整依赖（含 devDependencies）..."
-    # 清除可能存在的 .bin 目录残留，避免符号链接损坏
     rm -rf node_modules/.bin 2>/dev/null
     if ! npm install >>"$LOG_FILE" 2>&1; then
       err "后端依赖安装失败，无法继续构建"
@@ -789,7 +834,6 @@ build_app() {
 
   cd "$APP_DIR/web"
   info "构建前端..."
-  # 同样确保前端依赖完整
   if [[ ! -x "node_modules/.bin/vite" ]]; then
     warn "未找到 vite CLI，重新安装前端依赖..."
     npm install >>"$LOG_FILE" 2>&1 || {
@@ -807,9 +851,264 @@ build_app() {
   log "构建完成"
 }
 
-# 配置 Nginx
+# ============================================================================
+# 步骤 9：数据库迁移（prisma migrate deploy + db seed）
+# ============================================================================
+migrate_db() {
+  step "步骤 9：数据库迁移"
+
+  local server_dir="$APP_DIR/server"
+  cd "$server_dir" || {
+    err "后端目录不存在: $server_dir"
+    exit 1
+  }
+
+  if [[ ! -f ".env" ]]; then
+    err ".env 文件不存在，请先执行步骤 7（generate_env）"
+    exit 1
+  fi
+
+  info "执行 prisma generate（生成 Prisma Client）..."
+  if ! npx prisma generate >>"$LOG_FILE" 2>&1; then
+    err "prisma generate 失败"
+    err "  日志: $LOG_FILE"
+    exit 1
+  fi
+  log "✓ Prisma Client 已生成"
+
+  info "执行 prisma migrate deploy（应用所有未执行的迁移）..."
+  # timeout 180 秒，避免迁移卡死
+  if ! timeout 180 npx prisma migrate deploy >>"$LOG_FILE" 2>&1; then
+    err "prisma migrate deploy 失败"
+    err "  日志: $LOG_FILE"
+    err "  请检查 DATABASE_URL 是否正确，以及业务库/影子库是否已创建"
+    exit 1
+  fi
+  log "✓ 数据库迁移已应用"
+
+  info "执行 prisma db seed（初始化种子数据）..."
+  # seed 可能失败（已存在数据时），但不致命
+  if ! npx prisma db seed >>"$LOG_FILE" 2>&1; then
+    warn "prisma db seed 失败（不致命，可能数据已存在）"
+  else
+    log "✓ 种子数据已初始化"
+  fi
+
+  # 验证 Admin 表已创建
+  if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PWD" "$DB_NAME" \
+    -e "SELECT COUNT(*) AS admin_count FROM Admin;" >/dev/null 2>&1; then
+    log "✓ Admin 表已就绪"
+  else
+    warn "Admin 表不存在或无法访问，将在下一步创建管理员时尝试"
+  fi
+
+  log "数据库迁移完成"
+}
+
+# ============================================================================
+# 步骤 10：配置超级管理员账号（终端交互输入）
+# ============================================================================
+setup_admin() {
+  step "步骤 10：配置超级管理员账号"
+
+  local server_dir="$APP_DIR/server"
+  cd "$server_dir" || {
+    err "后端目录不存在: $server_dir"
+    exit 1
+  }
+
+  echo -e "${C_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+  echo -e "${C_BOLD}${C_YELLOW}📌 超级管理员账号配置${C_RESET}"
+  echo -e "${C_CYAN}将创建后台管理的超级管理员账号（role=SUPER_ADMIN）${C_RESET}"
+  echo -e "${C_CYAN}若已存在同名管理员，将更新其密码${C_RESET}"
+  echo -e "${C_CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+
+  local admin_user admin_pwd admin_email
+  if [[ "$DEPLOY_NONINTERACTIVE" == "1" ]]; then
+    admin_user="${ADMIN_USERNAME:-admin}"
+    admin_pwd="${ADMIN_PASSWORD:-}"
+    admin_email="${ADMIN_EMAIL:-}"
+    if [[ -z "$admin_pwd" ]]; then
+      err "非交互模式下 ADMIN_PASSWORD 环境变量必填"
+      exit 1
+    fi
+    info "非交互模式：ADMIN_USERNAME=$admin_user, ADMIN_EMAIL=${admin_email:-（未配置）}"
+  else
+    admin_user="$(prompt '管理员用户名（3-32 位字母数字_-）' 'admin')"
+
+    # 密码强度校验循环
+    while true; do
+      echo -e "${C_CYAN}请设置管理员密码（≥8 位，必须字母开头，含数字 + 特殊字符）${C_RESET}"
+      admin_pwd="$(prompt_password "管理员密码" "" --confirm)"
+
+      # 强度校验：≥8 位
+      if [[ ${#admin_pwd} -lt 8 ]]; then
+        echo -e "${C_RED}密码长度不足 8 位，请重新输入${C_RESET}"
+        continue
+      fi
+      # 字母开头
+      if ! [[ "$admin_pwd" =~ ^[a-zA-Z] ]]; then
+        echo -e "${C_RED}密码必须以字母开头，请重新输入${C_RESET}"
+        continue
+      fi
+      # 含数字
+      if ! [[ "$admin_pwd" =~ [0-9] ]]; then
+        echo -e "${C_RED}密码必须包含至少一个数字，请重新输入${C_RESET}"
+        continue
+      fi
+      # 含特殊字符
+      if ! [[ "$admin_pwd" =~ [^a-zA-Z0-9] ]]; then
+        echo -e "${C_RED}密码必须包含至少一个特殊字符，请重新输入${C_RESET}"
+        continue
+      fi
+      break
+    done
+
+    admin_email="$(prompt '管理员邮箱（可留空）' '')"
+  fi
+
+  # 写入 INIT_ADMIN_USERNAME / INIT_ADMIN_PASSWORD 到 .env（用于 seed 兼容 + 后台登录）
+  # 同时也作为 main.ts 启动校验的依据
+  if grep -q "^INIT_ADMIN_USERNAME=" .env; then
+    sed -i "s|^INIT_ADMIN_USERNAME=.*|INIT_ADMIN_USERNAME=${admin_user}|" .env
+  else
+    echo "INIT_ADMIN_USERNAME=${admin_user}" >> .env
+  fi
+  if grep -q "^INIT_ADMIN_PASSWORD=" .env; then
+    sed -i "s|^INIT_ADMIN_PASSWORD=.*|INIT_ADMIN_PASSWORD=${admin_pwd}|" .env
+  else
+    echo "INIT_ADMIN_PASSWORD=${admin_pwd}" >> .env
+  fi
+  info ".env 已更新 INIT_ADMIN_USERNAME / INIT_ADMIN_PASSWORD"
+
+  # 用 Node.js + bcryptjs 直接创建/更新管理员
+  # 不走 Prisma ORM，避免 Prisma Client 依赖问题
+  info "创建/更新超级管理员账号..."
+  local admin_script
+  admin_script=$(cat <<'NODE_SCRIPT'
+const bcrypt = require('bcryptjs');
+const mysql = require('mysql2/promise');
+const path = require('path');
+const fs = require('fs');
+
+(async () => {
+  const envPath = path.join(process.cwd(), '.env');
+  const envText = fs.readFileSync(envPath, 'utf8');
+  const env = {};
+  for (const line of envText.split('\n')) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
+    if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+  }
+
+  const dbUrl = env.DATABASE_URL || '';
+  const m = dbUrl.match(/^mysql:\/\/([^:]+):([^@]*)@([^:]+):(\d+)\/([^?]+)/);
+  if (!m) {
+    console.error('ERROR: 无法解析 DATABASE_URL: ' + dbUrl);
+    process.exit(1);
+  }
+  const [, user, pass, host, port, database] = m;
+
+  const username = process.argv[2];
+  const password = process.argv[3];
+  const email = process.argv[4] || '';
+  const nickname = '超级管理员';
+
+  let conn;
+  try {
+    conn = await mysql.createConnection({
+      host, port: parseInt(port, 10), user, password: pass, database,
+      connectTimeout: 8000,
+    });
+
+    // 检查 Admin 表是否存在
+    const [tables] = await conn.execute(
+      "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'Admin'",
+      [database]
+    );
+    if (tables.length === 0) {
+      console.error('ERROR: Admin 表不存在，请先执行数据库迁移');
+      process.exit(1);
+    }
+
+    const hash = await bcrypt.hash(password, 12);
+
+    // 检查是否已有管理员
+    const [existing] = await conn.execute('SELECT id, username FROM Admin LIMIT 1');
+    const hasAdmin = existing.length > 0;
+    const [sameName] = await conn.execute('SELECT id FROM Admin WHERE username = ?', [username]);
+    const sameExists = sameName.length > 0;
+
+    if (hasAdmin && sameExists) {
+      await conn.execute(
+        "UPDATE Admin SET passwordHash = ?, email = ?, nickname = ?, role = 'SUPER_ADMIN', status = 'ACTIVE', updatedAt = NOW() WHERE username = ?",
+        [hash, email || null, nickname, username]
+      );
+      console.log('OK:updated:管理员密码已更新（用户名: ' + username + '）');
+    } else {
+      try {
+        await conn.execute(
+          "INSERT INTO Admin (username, passwordHash, nickname, role, status, email, createdAt, updatedAt) VALUES (?, ?, ?, 'SUPER_ADMIN', 'ACTIVE', ?, NOW(), NOW())",
+          [username, hash, nickname, email || null]
+        );
+        console.log('OK:created:超级管理员已创建（用户名: ' + username + '）');
+      } catch (e) {
+        if (String(e.code) === 'ER_DUP_ENTRY') {
+          if (String(e.message).includes('username')) {
+            console.error('ERROR: 用户名 ' + username + ' 已存在');
+          } else if (String(e.message).includes('email')) {
+            console.error('ERROR: 邮箱 ' + email + ' 已被使用');
+          } else {
+            console.error('ERROR: 唯一约束冲突: ' + e.message);
+          }
+          process.exit(1);
+        }
+        throw e;
+      }
+    }
+  } catch (e) {
+    console.error('ERROR: ' + (e.message || String(e)));
+    process.exit(1);
+  } finally {
+    if (conn) { try { await conn.end(); } catch (_) {} }
+  }
+})();
+NODE_SCRIPT
+)
+
+  # 把脚本写到临时文件并执行（避免 heredoc 转义问题）
+  local tmp_script="$APP_DIR/server/.setup-admin.tmp.js"
+  echo "$admin_script" > "$tmp_script"
+
+  local admin_result
+  admin_result="$(node "$tmp_script" "$admin_user" "$admin_pwd" "$admin_email" 2>&1)"
+  rm -f "$tmp_script"
+
+  if [[ "$admin_result" =~ ^OK: ]]; then
+    local msg="${admin_result#*:}"
+    msg="${msg#*:}"
+    log "✓ $msg"
+  else
+    err "管理员创建失败: $admin_result"
+    err "  可手动重试或检查数据库 Admin 表结构"
+    rm -f "$tmp_script"
+    exit 1
+  fi
+
+  echo -e "${C_BOLD}${C_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+  echo -e "${C_BOLD}${C_GREEN}✅ 超级管理员已就绪${C_RESET}"
+  echo -e "${C_BOLD}${C_GREEN}   用户名: ${admin_user}${C_RESET}"
+  echo -e "${C_BOLD}${C_GREEN}   邮箱:   ${admin_email:-（未配置）}${C_RESET}"
+  echo -e "${C_BOLD}${C_GREEN}   后台登录: ${SITE_URL:-http://localhost}/admin${C_RESET}"
+  echo -e "${C_BOLD}${C_GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+
+  log "管理员账号配置完成"
+}
+
+# ============================================================================
+# 步骤 11：配置 Nginx（前端静态 + /api/ 反代）
+# ============================================================================
 configure_nginx() {
-  step "步骤 8：配置 Nginx"
+  step "步骤 11：配置 Nginx"
 
   if ! has_cmd nginx; then
     warn "Nginx 未安装，跳过 Nginx 配置（需手动配置反向代理）"
@@ -827,10 +1126,9 @@ configure_nginx() {
   cat > "$nginx_conf" <<EOF
 # 雨云服务器分销平台 Nginx 配置
 # 端口策略（全部使用默认端口）：
-#   - 前端 HTTP：80（主入口，提供前端静态文件 + API 反代 + 向导反代）
+#   - 前端 HTTP：80（主入口，提供前端静态文件 + API 反代）
 #   - 前端 HTTPS：443（仅 SSL_MODE != none 时启用）
 #   - 后端 NestJS：3001（仅 127.0.0.1，由本配置反代 /api/）
-#   - 部署向导：8888（仅 127.0.0.1，由本配置反代 /setup-wizard/）
 server {
     listen 80;
     server_name $server_name;
@@ -856,18 +1154,6 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_read_timeout 60s;
-    }
-
-    # 部署向导反向代理 → 127.0.0.1:8888（仅部署期间可用，向导完成后服务自动关闭）
-    # 用户通过 主站/setup-wizard/ 路径访问，无需开放 8888 端口到公网
-    location /setup-wizard/ {
-        proxy_pass http://127.0.0.1:${WIZARD_PORT}/;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 300s;
     }
 
     # 静态资源缓存
@@ -908,16 +1194,6 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
-    location /setup-wizard/ {
-        proxy_pass http://127.0.0.1:${WIZARD_PORT}/;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_read_timeout 300s;
-    }
-
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
         expires 7d;
         add_header Cache-Control "public, immutable";
@@ -934,14 +1210,6 @@ EOF
     info "申请 Let's Encrypt 证书..."
     if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect 2>&1 | tail -10; then
       log "Let's Encrypt 证书申请成功"
-      # certbot --nginx 会自动在配置中追加 443 server 块
-      # 我们需要手动在 443 server 块中添加 /setup-wizard/ 反代
-      if grep -q "listen 443" "$nginx_conf"; then
-        # 在 443 server 块的 location / { ... } 后面插入 /setup-wizard/ 反代
-        # 使用 sed 在 listen 443 的 server 块中查找 location /api/ 并在其后插入
-        # 这里采用更简单的方式：直接追加一个独立的 443 server 块覆盖
-        :
-      fi
     else
       warn "Let's Encrypt 申请失败，请检查："
       warn "  1. 域名 $DOMAIN 是否已正确解析到本机公网 IP"
@@ -952,42 +1220,93 @@ EOF
   fi
 }
 
-# 启动向导服务
-start_wizard() {
-  step "步骤 9：启动网页外部向导"
+# ============================================================================
+# 步骤 12：启动后端服务（PM2）
+# ============================================================================
+start_services() {
+  step "步骤 12：启动后端服务"
 
-  cd "$APP_DIR/deploy/setup-wizard"
+  local server_dir="$APP_DIR/server"
 
-  # 安装向导依赖（独立，轻量）
-  if [[ -f package.json ]]; then
-    info "安装向导依赖..."
-    npm install --omit=dev 2>/dev/null || npm install
-  fi
-
-  # 用 PM2 启动向导（通过 shell 环境变量传递 APP_DIR 和 WIZARD_PORT）
-  pm2 delete rainyun-wizard 2>/dev/null || true
-  APP_DIR="$APP_DIR" WIZARD_PORT="$WIZARD_PORT" \
-    pm2 start server.js --name rainyun-wizard --cwd "$APP_DIR/deploy/setup-wizard" 2>&1 | tail -5
-  pm2 save 2>/dev/null || true
-
-  # 向导通过 Nginx 反代 /setup-wizard/ 路径访问，无需开放 8888 端口到公网
-  # 向导服务本身只监听 127.0.0.1:8888（仅本地），由 Nginx 转发
-  # wizard_url 使用主站默认端口（80 HTTP / 443 HTTPS，不在 URL 中显示端口号）+ /setup-wizard/ 路径
-  local wizard_url
-  if [[ -n "$DOMAIN" ]]; then
-    if [[ "$SSL_MODE" == "letsencrypt" || "$SSL_MODE" == "custom" ]]; then
-      wizard_url="https://$DOMAIN/setup-wizard/"
-    else
-      wizard_url="http://$DOMAIN/setup-wizard/"
+  # 检查构建产物
+  local server_entry=""
+  for p in "$server_dir/dist/main.js" "$server_dir/dist/src/main.js"; do
+    if [[ -f "$p" ]]; then
+      server_entry="$p"
+      break
     fi
-  else
-    local server_ip
-    server_ip="$(curl -sS --max-time 5 ifconfig.me 2>/dev/null || echo 'localhost')"
-    wizard_url="http://$server_ip/setup-wizard/"
+  done
+  if [[ -z "$server_entry" ]]; then
+    err "后端入口文件不存在（dist/main.js 或 dist/src/main.js），请先执行 build_app"
+    exit 1
   fi
+  if [[ ! -f "$APP_DIR/web/dist/index.html" ]]; then
+    err "前端构建产物不存在（web/dist/index.html），请先执行 build_app"
+    exit 1
+  fi
+
+  if ! has_cmd pm2; then
+    err "PM2 未安装，无法启动服务"
+    exit 1
+  fi
+
+  info "启动后端服务（PM2 进程名: rainyun-api）..."
+  pm2 delete rainyun-api 2>/dev/null || true
+  pm2 start "$server_entry" --name rainyun-api --cwd "$server_dir" 2>&1 | tail -5
+  pm2 save 2>/dev/null || true
+  log "✓ 后端进程已启动"
+
+  info "等待后端启动（3 秒）..."
+  sleep 3
+
+  # 健康检查
+  info "健康检查 http://127.0.0.1:3001/api/health ..."
+  local healthy=0
+  for i in 1 2 3 4 5; do
+    local resp
+    resp="$(curl -sS --max-time 5 http://127.0.0.1:3001/api/health 2>/dev/null || echo '')"
+    if echo "$resp" | grep -q '"status":"ok"'; then
+      healthy=1
+      log "✓ 后端健康检查通过（第 $i 次尝试）"
+      break
+    fi
+    warn "第 $i 次健康检查未通过，等待 2 秒重试..."
+    sleep 2
+  done
+
+  if [[ $healthy -eq 0 ]]; then
+    err "后端健康检查未通过"
+    err "  最近日志："
+    pm2 logs rainyun-api --nostream --lines 20 2>&1 | tail -25 | sed 's/^/    /'
+    err "  请检查后端日志: pm2 logs rainyun-api --lines 50"
+    err "  常见原因:"
+    err "    1. .env 中密钥长度不合规（AES_SECRET 必须 32 字符，JWT_SECRET ≥32 字符）"
+    err "    2. DATABASE_URL 无法连接"
+    err "    3. 数据库未迁移"
+    exit 1
+  fi
+
+  # 写入部署完成标记
+  cat > "$APP_DIR/deploy/.deploy-done" <<EOF
+{
+  "completedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "siteUrl": "${SITE_URL:-}",
+  "domain": "${DOMAIN:-}",
+  "deployVersion": "2.0.0"
+}
+EOF
+
+  log "✓ 部署完成标记已写入"
+  log "服务启动完成"
+}
+
+# ============================================================================
+# 步骤 13：部署完成提示 + 防火墙放行
+# ============================================================================
+deploy_complete() {
+  step "步骤 13：部署完成"
 
   # 放行防火墙端口：80（HTTP）/ 443（HTTPS，如配置 SSL）
-  # 向导端口 8888 无需放行（仅监听 127.0.0.1，由 Nginx 反代）
   info "检查防火墙端口 80（HTTP）..."
   if command -v ufw >/dev/null 2>&1; then
     ufw allow 80/tcp >/dev/null 2>&1 && info "ufw 已放行 80/tcp"
@@ -1007,70 +1326,36 @@ start_wizard() {
     info "iptables 已放行前端端口"
   fi
 
-  # 等待向导启动
-  sleep 2
-
-  # 本地健康检查
-  local wizard_healthy=0
-  for i in 1 2 3 4 5; do
-    if curl -sS --max-time 2 "http://127.0.0.1:$WIZARD_PORT/" >/dev/null 2>&1; then
-      wizard_healthy=1
-      info "向导服务已就绪 (本地响应正常)"
-      break
-    fi
-    sleep 1
-  done
-  if [[ $wizard_healthy -eq 0 ]]; then
-    warn "向导服务本地无响应，请检查 PM2 日志: pm2 logs rainyun-wizard --lines 30"
-  fi
-
-  # 从 .deploy-meta.json 读取向导令牌
-  local wizard_token=""
-  if [[ -f "$APP_DIR/deploy/.deploy-meta.json" ]]; then
-    wizard_token="$(grep -o '"wizardToken"[[:space:]]*:[[:space:]]*"[^"]*"' "$APP_DIR/deploy/.deploy-meta.json" | head -1 | sed 's/.*"wizardToken"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
-  fi
-
   cat <<EOF
 
 ${C_BOLD}${C_GREEN}============================================================
-  部署脚本执行完成！
+  🎉 部署全部完成！
 ============================================================${C_RESET}
 
-${C_CYAN}接下来请访问网页外部向导完成最后配置：${C_RESET}
+${C_BOLD}${C_CYAN}站点信息：${C_RESET}
+  前台首页: ${C_BOLD}${C_YELLOW}${SITE_URL:-http://localhost}${C_RESET}
+  后台管理: ${C_BOLD}${C_YELLOW}${SITE_URL:-http://localhost}/admin${C_RESET}
 
-${C_BOLD}${C_YELLOW}  👉 ${wizard_url}${C_RESET}
+${C_BOLD}${C_CYAN}PM2 进程：${C_RESET}
+  - rainyun-api（后端 NestJS，端口 3001）
+  常用命令:
+    pm2 list                              # 查看进程
+    pm2 logs rainyun-api --lines 50       # 查看日志
+    pm2 restart rainyun-api               # 重启后端
+    pm2 save                              # 保存进程列表
 
-EOF
-
-  if [[ -n "$wizard_token" ]]; then
-    cat <<EOF
-${C_BOLD}${C_RED}🔐 向导访问令牌（请妥善保管，访问向导时需要输入）：${C_RESET}
-${C_BOLD}${C_YELLOW}  ${wizard_token}${C_RESET}
-
-${C_CYAN}说明：向导页面首次加载时会要求输入此令牌，输入后方可继续配置。${C_RESET}
-${C_CYAN}令牌仅用于本次部署期间的向导认证，向导完成后自动失效。${C_RESET}
-
-EOF
-  fi
-
-  cat <<EOF
-${C_CYAN}向导将引导你完成：${C_RESET}
-  1. 环境检测
-  2. 数据库连接验证（不会自动创建数据库）
-  3. 域名配置（可二次填写）
-  4. 配置超级管理员账号
-  5. 启动前后端服务（启动后向导会自动关闭）
-
-${C_CYAN}向导完成后即可正常访问站点：${C_RESET}
-  ${site_url:-http://localhost}
+${C_BOLD}${C_CYAN}常用运维：${C_RESET}
+  - Nginx 配置: /etc/nginx/conf.d/rainyun-reseller.conf
+  - 后端 .env:  $APP_DIR/server/.env
+  - 部署元信息: $APP_DIR/deploy/.deploy-meta.json
+  - 部署日志:   $LOG_FILE
 
 ${C_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}
-${C_BOLD}${C_RED}⚠️  如果无法访问向导，请检查以下三项：${C_RESET}
+${C_BOLD}${C_RED}⚠️  如果无法访问站点，请检查以下三项：${C_RESET}
 ${C_YELLOW}1. 云服务商安全组：放行 TCP 80 端口（HTTP 入站规则）${C_RESET}
 ${C_YELLOW}   $([ "$SSL_MODE" != "none" ] && echo "   若配置 SSL，还需放行 TCP 443 端口（HTTPS）")
-${C_YELLOW}   - 向导通过 主站/setup-wizard/ 路径访问，无需开放 ${WIZARD_PORT} 端口${C_RESET}
 ${C_YELLOW}2. 确认 Nginx 已正常运行：systemctl status nginx${C_RESET}
-${C_YELLOW}3. 确认向导进程在运行：pm2 logs rainyun-wizard --lines 20${C_RESET}
+${C_YELLOW}3. 确认后端进程在运行：pm2 logs rainyun-api --lines 20${C_RESET}
 ${C_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}
 
 EOF
@@ -1083,7 +1368,8 @@ main() {
   echo -e "${C_BOLD}${C_GREEN}"
   cat <<'EOF'
 ============================================================
-  雨云服务器分销平台 v1.1.0 - 一键部署脚本
+  雨云服务器分销平台 v2.0.0 - 一键部署脚本
+  （终端完成全部操作，无需任何网页向导）
 ============================================================
 EOF
   echo -e "${C_RESET}"
@@ -1102,8 +1388,12 @@ EOF
       err "非交互模式下 DB_PASS 环境变量必填"
       exit 1
     fi
+    if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
+      err "非交互模式下 ADMIN_PASSWORD 环境变量必填"
+      exit 1
+    fi
   else
-    info "运行模式: 交互式"
+    info "运行模式: 交互式（终端完成全部配置）"
   fi
 
   mkdir -p "$(dirname "$LOG_FILE")"
@@ -1112,12 +1402,16 @@ EOF
   install_deps
   pull_repo
   configure_db
+  configure_api_key
   configure_domain
   configure_ssl
   generate_env
   build_app
+  migrate_db
+  setup_admin
   configure_nginx
-  start_wizard
+  start_services
+  deploy_complete
 
   log "部署脚本全部步骤完成"
 }

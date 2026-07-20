@@ -157,11 +157,8 @@ KeYuCloud/
 │   └── vite.config.ts
 │
 ├── deploy/
-│   ├── deploy.sh                    # 一键部署脚本
-│   ├── update.sh                    # 在线更新脚本
-│   └── setup-wizard/                # 网页部署向导
-│       ├── server.js                # 向导后端
-│       └── public/index.html        # 向导前端
+│   ├── deploy.sh                    # 一键部署脚本（终端完成全部操作）
+│   └── update.sh                    # 在线更新脚本
 │
 └── README.md
 ```
@@ -294,90 +291,35 @@ sudo ./deploy/deploy.sh
 
 ```
 ============================================================
-  部署脚本执行完成！
+  🎉 部署全部完成！
 ============================================================
 
-接下来请访问网页外部向导完成最后配置：
+站点信息：
+  前台首页: http://your-server-ip
+  后台管理: http://your-server-ip/admin
 
-  👉 http://your-server-ip/setup-wizard/
-
-🔐 向导访问令牌（请妥善保管，访问向导时需要输入）：
-  a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
+PM2 进程：
+  - rainyun-api（后端 NestJS，端口 3001）
 ```
 
-> **请妥善记录此令牌**，向导页面首次加载时必须输入，未输入正确令牌无法访问任何向导 API。
+> v2.0.0 起全部部署操作（数据库/API Key/域名/SSL/管理员/启动）都在终端一次性完成，
+> **不再需要任何网页向导**。数据库在步骤 3 创建后会直接写入 `.env` 的 `DATABASE_URL`，
+> 无需再在任何位置二次配置数据库连接。
 
 ---
 
-## 网页部署向导
+## 重新配置
 
-部署脚本执行完后，最后 5 步配置通过网页向导完成。
-
-### 访问方式
-
-1. 浏览器打开脚本输出的向导地址（通过主站 `/setup-wizard/` 路径访问）
-2. 输入部署脚本控制台显示的**向导访问令牌**
-3. 验证通过后进入向导
-
-### 5 步流程
-
-#### 步骤 1：环境检测
-
-检测 Node.js / npm / PM2 / MySQL / Redis / Nginx / Git / 应用目录 / .env 文件是否就绪。
-
-#### 步骤 2：连接数据库
-
-- 预填：主机 `127.0.0.1`、端口 `3306`、用户 `rainyun`、库名 `rainyun_reseller`
-- 密码必填，预填项可手动修改
-- **自动测试连接，严禁自动创建数据库**：库不存在直接报错，提示回 SSH 执行部署脚本
-- 测试成功后自动执行 `prisma migrate deploy` + `prisma db seed`
-
-#### 步骤 3：域名配置（可二次填写）
-
-- 自动检测 DNS 是否解析到本机，未生效可勾选「跳过检测」强制保存
-- 自动更新 `.env` 与 Nginx 配置
-
-#### 步骤 4：配置超级管理员
-
-- 用户名：3-32 位字母数字下划线
-- 密码：≥ 8 位，**必须同时包含字母和数字**
-- 邮箱：可选
-- 密码以 bcrypt 12 轮哈希存储
-- 同名管理员已存在则自动更新密码
-
-#### 步骤 5：启动服务
-
-- PM2 启动后端进程 `rainyun-api`
-- 健康检查 `http://127.0.0.1:3001/api/health`
-- **3 秒后自动关闭向导进程**（`pm2 delete rainyun-wizard`），外部无法再访问
-
-### 向导 API
-
-除 `status` / `services` / `verify-token` / `health` 外，所有 POST 接口必须携带 `x-wizard-token` 头部：
-
-| API | 方法 | 鉴权 | 说明 |
-|---|---|---|---|
-| `/health` | GET | 无 | 健康检查 |
-| `/api/wizard/status` | GET | 无 | 读取部署元信息 + 完成标记 |
-| `/api/wizard/services` | GET | 无 | 查询前后端运行状态 |
-| `/api/wizard/verify-token` | POST | 无 | 验证向导令牌 |
-| `/api/wizard/check-env` | POST | 令牌 | 环境检测 |
-| `/api/wizard/test-db` | POST | 令牌 | 测试数据库连接（不自动建库） |
-| `/api/wizard/migrate-db` | POST | 令牌 | 执行数据库迁移 + Seed |
-| `/api/wizard/configure-domain` | POST | 令牌 | 二次域名配置 |
-| `/api/wizard/setup-admin` | POST | 令牌 | 创建/更新超级管理员 |
-| `/api/wizard/start-services` | POST | 令牌 | 启动服务（启动后自动关闭向导） |
-
-### 重新配置
-
-如需重新进入向导：
+如需重新执行任意部署步骤（例如更换域名、重置管理员密码、重新迁移数据库），
+直接再次运行部署脚本即可：
 
 ```bash
-rm /opt/rainyun-reseller/deploy/.wizard-done
-cd /opt/rainyun-reseller/deploy/setup-wizard
-APP_DIR=/opt/rainyun-reseller WIZARD_PORT=8888 pm2 start server.js --name rainyun-wizard
-# 重新访问 http://your-server-ip/setup-wizard/，需再次输入向导令牌
+cd /opt/rainyun-reseller/deploy
+sudo ./deploy.sh
 ```
+
+脚本会跳过已存在的依赖与代码，逐项重新询问数据库、API Key、域名、SSL、管理员配置；
+若不想重置某项，按回车保留默认值即可。
 
 ---
 
@@ -697,13 +639,12 @@ openssl rand -hex 16      # AES_SECRET（32 字符 = 32 字节）
 | 服务 | 端口 | 监听地址 | 说明 |
 |---|---|---|---|
 | 后端 NestJS | 3001 | 0.0.0.0（生产建议改 127.0.0.1） | 由 Nginx 反代 /api/ |
-| 网页部署向导 | 8888 | 127.0.0.1 | 由 Nginx 反代 /setup-wizard/，无需开放公网 |
 | MySQL | 3306 | 127.0.0.1（建议） | 软件默认端口 |
 | Redis | 6379 | 127.0.0.1（建议） | 软件默认端口 |
 | Nginx HTTP / HTTPS | 80 / 443 | 0.0.0.0 | 前端入口，必须 |
 | Chrome DevTools（仅开发） | 9222 | 127.0.0.1 | 仅本地前端自动化测试用 |
 
-> 向导服务仅监听 127.0.0.1，通过 Nginx 的 /setup-wizard/ 路径反代访问，无需开放 8888 端口到公网。
+> v2.0.0 起已移除网页部署向导，全部部署操作在终端通过 `deploy.sh` 一次性完成，无需 8888 端口。
 
 ---
 
@@ -801,13 +742,13 @@ app.enableCors({
 - 生产环境必须配置为你的域名
 - 不使用 `origin: '*'`
 
-### 10. 向导安全机制
+### 10. 部署安全机制
 
-- **一次性令牌认证**：所有 POST 接口必须携带 `x-wizard-token` 头部，否则 401
-- **向导完成后自动关闭**：启动服务成功后，向导进程通过 `pm2 delete rainyun-wizard` 自删除
-- **写操作锁定**：`.wizard-done` 存在时，写操作 API 返回 403
-- **数据库密码不落盘**：仅在内存中缓存（进程退出即清除）
-- **不自动创建数据库**：测试连接时库不存在直接报错
+- **全部终端完成**：v2.0.0 起取消网页向导，所有配置（数据库、API Key、域名、SSL、管理员）通过 SSH 在 `deploy.sh` 中完成，无任何对外 Web 接口暴露
+- **数据库即建即用**：步骤 3 创建的数据库与用户直接写入 `.env` 的 `DATABASE_URL`，不再有任何二次连接配置入口
+- **密钥强随机**：JWT_SECRET / ADMIN_JWT_SECRET 用 `openssl rand -hex 32` 生成，AES_SECRET 用 `openssl rand -hex 16` 生成（恰好 32 字节）
+- **.env 权限 600**：仅 owner 可读写
+- **管理员密码 bcrypt 12 轮哈希**：管理员密码不落盘明文
 
 ### 11. AES-256 加密
 
