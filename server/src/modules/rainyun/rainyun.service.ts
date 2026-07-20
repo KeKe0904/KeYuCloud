@@ -28,18 +28,22 @@ export class RainyunService implements OnModuleInit {
   // ===== 雨云 region code → 区域中文名映射 =====
   // 雨云官方 API 不返回区域中文名（仅 region code 如 us-la1），需本地映射
   // 数据来源：雨云官网 https://app.rainyun.com 当前在售区域（13 个，2026-07 实测）
-  // 注：cn-hk1/2/3 是三个独立节点，雨云官网区分「香港1区/2区/3区」
-  // 注：与 ProductService.ZONE_NAME_MAP 保持一致（单一来源真相）
+  //          /product/rcs/os-templates 出现 18 个区域（含即将上线的 5 个）
+  // 注：cn-hk1/2/3/4 是四个独立节点，雨云官网区分「香港1/2/3/4区」
+  // 注：cn-sz1/2 是两个独立节点；jp-tk1/2 是两个独立节点
+  // 注：与前端 NET_ZONE_LABELS 保持一致（单一来源真相）
   private static readonly REGION_NAME_MAP: Record<string, string> = {
-    // 香港区域（3 个独立节点）
+    // 香港区域（4 个独立节点）
     'cn-hk1': '香港1区',
     'cn-hk2': '香港2区',
     'cn-hk3': '香港3区',
+    'cn-hk4': '香港4区',  // OS 列表已出现，plans 暂未售卖
     // 美国
     'us-la1': '美国洛杉矶1区',
     'us-la2': '美国洛杉矶2区',
     // 亚洲其他
     'jp-tk1': '日本东京',
+    'jp-tk2': '日本东京2区',  // OS 列表已出现，plans 暂未售卖
     'kr-se1': '韩国首尔',
     'sg-sg1': '新加坡',
     // 大陆区域
@@ -50,6 +54,7 @@ export class RainyunService implements OnModuleInit {
     'cn-cq1': '重庆',
     'cn-gz1': '广东广州',
     'cn-sz1': '广东深圳',
+    'cn-sz2': '广东深圳2区',  // OS 列表已出现，plans 暂未售卖
     'cn-sx1': '浙江绍兴',  // 官方购买页：华东浙江 → 绍兴三线BGP
     'cn-wz1': '浙江温州',
   };

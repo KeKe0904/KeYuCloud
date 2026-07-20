@@ -90,9 +90,12 @@ export interface OsTemplate {
 
 // ===== 区域（region/zone）中文映射 =====
 // 雨云 region 字段 = 区域代码（如 cn-hk1），套餐已绑定，不可跨区选择
-// 数据来源：雨云 /product/rcs/plans 实测 13 个区域（2026-07）
-// 注：cn-hk1/2/3 是三个独立节点，雨云官网区分「香港1区/2区/3区」
+// 数据来源：雨云 /product/rcs/plans 实测 13 个在售区域（2026-07）
+//         /product/rcs/os-templates 出现 18 个区域（含即将上线的 5 个）
+// 注：cn-hk1/2/3/4 是四个独立节点，雨云官网区分「香港1/2/3/4区」
+// 注：cn-sz1/2 是两个独立节点；jp-tk1/2 是两个独立节点
 export const NET_ZONE_LABELS: Record<string, string> = {
+  // 大陆区域
   'cn-sq1': '江苏宿迁',
   'cn-sy1': '湖北十堰',
   'cn-nb1': '浙江宁波',
@@ -100,14 +103,20 @@ export const NET_ZONE_LABELS: Record<string, string> = {
   'cn-cq1': '重庆',
   'cn-gz1': '广东广州',
   'cn-sz1': '广东深圳',
+  'cn-sz2': '广东深圳2区',  // OS 列表已出现，plans 暂未售卖
   'cn-sx1': '浙江绍兴',  // 官方购买页：华东浙江 → 绍兴三线BGP
   'cn-wz1': '浙江温州',
+  // 香港区域（4 个独立节点）
   'cn-hk1': '香港1区',
   'cn-hk2': '香港2区',
   'cn-hk3': '香港3区',
+  'cn-hk4': '香港4区',  // OS 列表已出现，plans 暂未售卖
+  // 美国
   'us-la1': '美国洛杉矶1区',
   'us-la2': '美国洛杉矶2区',
+  // 亚洲其他
   'jp-tk1': '日本东京',
+  'jp-tk2': '日本东京2区',  // OS 列表已出现，plans 暂未售卖
   'kr-se1': '韩国首尔',
   'sg-sg1': '新加坡',
 };
@@ -151,8 +160,11 @@ export const DISK_TYPE_LABELS: Record<string, string> = {
 };
 
 // ===== 计费类型中文映射 =====
+// 雨云 charge_type 实测 3 种取值（2026-07）：
+//   package(237 个) / package_old(19 个) / package_traffic(187 个)
 export const CHARGE_TYPE_LABELS: Record<string, string> = {
   'package': '不限流量',
+  'package_old': '不限流量（旧版）',
   'package_traffic': '流量叠加',
 };
 
