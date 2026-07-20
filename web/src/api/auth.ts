@@ -2,6 +2,8 @@ import { request } from './http';
 
 export interface UserProfile {
   id: number;
+  uid: number;
+  username: string | null;
   phone: string;
   email: string;
   nickname: string;
@@ -18,6 +20,7 @@ export interface UserProfile {
 export const authApi = {
   register(data: {
     phone: string;
+    username: string;
     password: string;
     smsCode: string;
     email?: string;
@@ -26,7 +29,7 @@ export const authApi = {
   }) {
     return request.post<{ token: string; user: UserProfile }>('/auth/register', data);
   },
-  login(data: { phone: string; password: string }) {
+  login(data: { account: string; password: string }) {
     return request.post<{ token: string; user: UserProfile }>('/auth/login', data);
   },
   // 发送短信验证码（注册场景）

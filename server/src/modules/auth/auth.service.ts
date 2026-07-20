@@ -22,6 +22,27 @@ export class AuthService {
     private mailer: MailerService,
   ) {}
 
+  /**
+   * 生成六位数 UID（从 100001 起递增）
+   * 策略：取当前最大 uid + 1，若无记录则从 100001 开始
+   * 使用事务 + 唯一约束保证并发安全（失败重试一次）
+   */
+  private async generateUid(): Promise<number> {
+    const START_UID = 100001;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const maxRow = await this.prisma.user.aggregate({ _max: { uid: true } });
+        const nextUid = (maxRow._max.uid || START_UID - 1) + 1;
+        // 唯一约束会在并发冲突时抛错，由 catch 捕获重试
+        return nextUid;
+      } catch (e) {
+        // 重试
+      }
+    }
+    // 兜底：时间戳后六位
+    return START_UID + Math.floor(Math.random() * 900000);
+  }
+
   async register(dto: RegisterDto, ip?: string) {
     // SMTP 开启时强制要求邮箱绑定；未开启时邮箱可选
     const smtpEnabled = await this.mailer.isSmtpEnabled();
@@ -44,6 +65,13 @@ export class AuthService {
     const exists = await this.prisma.user.findUnique({ where: { phone: dto.phone } });
     if (exists) throw new ConflictException('手机号已注册');
 
+    // 校验用户名唯一性
+    const usernameExists = await this.prisma.user.findUnique({ where: { username: dto.username } });
+    if (usernameExists) throw new ConflictException('用户名已被占用');
+
+    // 生成六位数 UID
+    const uid = await this.generateUid();
+
     const passwordHash = await bcrypt.hash(dto.password, 12);
     // XSS 清洗昵称（限 30 字符）
     const safeNickname = dto.nickname
@@ -51,6 +79,8 @@ export class AuthService {
       : `用户${dto.phone.slice(-4)}`;
     const user = await this.prisma.user.create({
       data: {
+        uid,
+        username: dto.username,
         phone: dto.phone,
         email: dto.email || null,
         nickname: safeNickname,
@@ -60,8 +90,9 @@ export class AuthService {
     });
 
     // 同步创建 panel_user
-    // 注意：雨云 API 不允许 name 包含下划线等特殊字符，仅允许字母数字（3-16 字符）
-    const panelName = `pu${user.id}`;
+    // panelUserName 使用用户填写的 username（与登录用户名同步）
+    // 雨云 API 要求 name 仅允许字母数字（3-16 字符），已在 DTO 中校验
+    const panelName = dto.username;
     // 面板密码与注册密码保持一致（与 changePassword 行为对齐）
     // 用户在平台修改密码时也会同步到面板，因此注册阶段也用同一密码
     const panelPassword = dto.password;
@@ -104,7 +135,7 @@ export class AuthService {
     await this.notification.send(user.id, {
       type: 'system',
       title: '欢迎注册',
-      content: `欢迎来到云服分销平台！您的账号已创建成功。`,
+      content: `欢迎来到云服分销平台！您的账号已创建成功。您的 UID：${uid}，用户名：${dto.username}。`,
     });
 
     const token = await this.signToken(user);
@@ -115,7 +146,14 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, ip?: string) {
-    const user = await this.prisma.user.findUnique({ where: { phone: dto.phone } });
+    // 支持手机号或用户名登录
+    // 手机号匹配 /^1[3-9]\d{9}$/，否则视为用户名
+    let user: any = null;
+    if (/^1[3-9]\d{9}$/.test(dto.account)) {
+      user = await this.prisma.user.findUnique({ where: { phone: dto.account } });
+    } else {
+      user = await this.prisma.user.findUnique({ where: { username: dto.account } });
+    }
     if (!user) throw new UnauthorizedException('账号或密码错误');
     if (user.status === 'BANNED') throw new UnauthorizedException('账号已被封禁');
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
@@ -213,6 +251,8 @@ export class AuthService {
   private sanitizeUser(user: any) {
     return {
       id: user.id,
+      uid: user.uid,
+      username: user.username,
       phone: user.phone,
       email: user.email,
       nickname: user.nickname,

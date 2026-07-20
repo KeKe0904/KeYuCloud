@@ -54,6 +54,7 @@ onUnmounted(() => {
 // 表单数据
 const form = reactive({
   phone: '',
+  username: '',
   smsCode: '',
   email: '',
   password: '',
@@ -100,6 +101,20 @@ const rules = computed<FormRules>(() => ({
     {
       pattern: /^1[3-9]\d{9}$/,
       message: '请输入正确的手机号',
+      trigger: 'blur',
+    },
+  ],
+  username: [
+    { required: true, message: '请输入用户名', trigger: 'blur' },
+    {
+      min: 3,
+      max: 16,
+      message: '用户名长度需在 3~16 位之间',
+      trigger: 'blur',
+    },
+    {
+      pattern: /^[a-zA-Z0-9]+$/,
+      message: '用户名只能包含英文和数字（不可含中文或特殊字符）',
       trigger: 'blur',
     },
   ],
@@ -174,6 +189,7 @@ async function handleSubmit() {
     try {
       const res = await authApi.register({
         phone: form.phone.trim(),
+        username: form.username.trim(),
         password: form.password,
         smsCode: form.smsCode.trim(),
         email: form.email.trim() || undefined,
@@ -258,6 +274,23 @@ watch(
                 <el-icon><Iphone /></el-icon>
               </template>
             </el-input>
+          </el-form-item>
+
+          <el-form-item prop="username">
+            <template #label>
+              <span class="field-label eyebrow">用户名</span>
+            </template>
+            <el-input
+              v-model="form.username"
+              placeholder="3-16 位英文或数字（将作为面板登录名）"
+              maxlength="16"
+              clearable
+            >
+              <template #prefix>
+                <el-icon><User /></el-icon>
+              </template>
+            </el-input>
+            <div class="field-hint">用户名仅可使用英文加数字或纯数字，不能包含中文和特殊字符，注册后可用于登录</div>
           </el-form-item>
 
           <el-form-item prop="smsCode">

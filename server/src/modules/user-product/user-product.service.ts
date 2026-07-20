@@ -93,7 +93,7 @@ export class UserProductService {
   async getPanelLoginUrl(userId: number) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('用户不存在');
-    const panelUserName = user.panelUserName || `pu${user.id}`;
+    const panelUserName = user.panelUserName || user.username || `user${user.id}`;
     return {
       // 雨云官方面板地址（用户用 panelUserName + 面板密码登录）
       url: 'https://app.rainyun.com/panel/apps/rcs/list',

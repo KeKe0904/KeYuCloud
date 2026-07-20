@@ -1226,11 +1226,100 @@ onMounted(() => {
                     </div>
                   </div>
                 </el-form-item>
+
+                <!-- 购买时长（从右侧购买面板移入，让购买面板更紧凑适配屏幕） ===== -->
+                <el-form-item>
+                  <template #label>
+                    <span class="form-label">购买时长（机器价）</span>
+                  </template>
+                  <div class="duration-grid">
+                    <button
+                      v-for="opt in durationOptions"
+                      :key="opt.value"
+                      type="button"
+                      class="duration-card"
+                      :class="{ active: form.duration === opt.value }"
+                      :disabled="!priceMap[String(opt.value)]"
+                      @click="selectDuration(opt.value)"
+                    >
+                      <div class="duration-label">{{ opt.label }}</div>
+                      <div v-if="getOfficialPrice(opt.value) !== null" class="duration-official font-mono">
+                        ¥{{ getOfficialPrice(opt.value)!.toFixed(2) }}
+                      </div>
+                      <div class="duration-price font-display">
+                        {{ formatPrice(priceMap[String(opt.value)] ? Number(priceMap[String(opt.value)]) : null) }}
+                      </div>
+                      <div v-if="discountLabel" class="duration-discount font-mono">{{ discountLabel }}</div>
+                      <div v-else class="duration-discount font-mono">{{ opt.discount }}</div>
+                    </button>
+                  </div>
+                </el-form-item>
+
+                <!-- IP 类型（从右侧购买面板移入） ===== -->
+                <el-form-item v-if="ipOptions.length">
+                  <template #label>
+                    <span class="form-label">IP 类型</span>
+                    <span class="form-label-hint">机器价不含 IP，请按需选择</span>
+                  </template>
+                  <div class="ip-grid">
+                    <!-- "不购买独立 IP" 选项卡（仅 NAT 商品显示，默认选中） -->
+                    <button
+                      v-if="isNatProduct"
+                      type="button"
+                      class="ip-card ip-card-none"
+                      :class="{ active: form.ipType === null }"
+                      @click="selectIpType(null)"
+                    >
+                      <div class="ip-card-head">
+                        <span class="ip-label">不购买独立 IP</span>
+                        <span class="ip-free-tag ip-tag-none">使用 NAT</span>
+                      </div>
+                      <div class="ip-price font-display">
+                        <span class="ip-price-current">¥0.00</span>
+                        <span class="ip-unit">使用共享 IP</span>
+                      </div>
+                    </button>
+                    <button
+                      v-for="opt in ipOptions"
+                      :key="opt.type || 'default'"
+                      type="button"
+                      class="ip-card"
+                      :class="{ active: form.ipType === opt.type }"
+                      @click="selectIpType(opt.type)"
+                    >
+                      <div class="ip-card-head">
+                        <span class="ip-label">{{ opt.label }}</span>
+                        <span v-if="opt.isFree" class="ip-free-tag">免费</span>
+                      </div>
+                      <div class="ip-price font-display">
+                        <span v-if="opt.isFree">¥0.00</span>
+                        <template v-else>
+                          <span class="ip-price-current">+¥{{ opt.price.toFixed(2) }}<span class="ip-unit">/月</span></span>
+                          <span v-if="opt.hasDiscount" class="ip-price-original">
+                            <span class="price-strike">¥{{ opt.originalPrice.toFixed(2) }}</span>
+                            <span class="price-off-tag">{{ Math.round((1 - opt.price / opt.originalPrice) * 100) }}% OFF</span>
+                          </span>
+                        </template>
+                      </div>
+                    </button>
+                  </div>
+                </el-form-item>
+
+                <!-- NAT 共享 IP 提示 -->
+                <el-form-item v-if="isNatProduct && form.ipType === null">
+                  <div class="nat-notice">
+                    <span class="nat-notice-icon">i</span>
+                    <div class="nat-notice-text">
+                      <strong>NAT 共享 IP 商品</strong>
+                      <p>本套餐为 NAT 共享 IP，默认使用共享 IP（无需额外购买独立 IP）。共享 IP 端口映射可在实例开通后于控制台配置。如需独立 IP，可在上方选择购买。</p>
+                    </div>
+                  </div>
+                </el-form-item>
               </el-form>
             </div>
           </div>
 
-          <!-- 右侧：购买表单（时长 / IP / 数量 / 优惠券 / 价格汇总 / 购买） -->
+          <!-- 右侧：购买表单（IP数量 / 数量 / 优惠券 / 价格汇总 / 购买） -->
           <div class="buy-panel card">
             <div class="panel-head">
               <span class="panel-eyebrow eyebrow">Order</span>
@@ -1245,95 +1334,6 @@ onMounted(() => {
               label-position="top"
               class="buy-form"
             >
-              <!-- 时长选择 -->
-              <el-form-item>
-                <template #label>
-                  <span class="form-label">购买时长（机器价）</span>
-                </template>
-                <div class="duration-grid">
-                  <button
-                    v-for="opt in durationOptions"
-                    :key="opt.value"
-                    type="button"
-                    class="duration-card"
-                    :class="{ active: form.duration === opt.value }"
-                    :disabled="!priceMap[String(opt.value)]"
-                    @click="selectDuration(opt.value)"
-                  >
-                    <div class="duration-label">{{ opt.label }}</div>
-                    <div v-if="getOfficialPrice(opt.value) !== null" class="duration-official font-mono">
-                      ¥{{ getOfficialPrice(opt.value)!.toFixed(2) }}
-                    </div>
-                    <div class="duration-price font-display">
-                      {{ formatPrice(priceMap[String(opt.value)] ? Number(priceMap[String(opt.value)]) : null) }}
-                    </div>
-                    <div v-if="discountLabel" class="duration-discount font-mono">{{ discountLabel }}</div>
-                    <div v-else class="duration-discount font-mono">{{ opt.discount }}</div>
-                  </button>
-                </div>
-              </el-form-item>
-
-              <!-- IP 选项（基于上游 ip_prices，NAT 套餐 ip_selling=null 但 ip_prices 非空时也可购买独立 IP） -->
-              <el-form-item v-if="ipOptions.length">
-                <template #label>
-                  <span class="form-label">IP 类型</span>
-                  <span class="form-label-hint">机器价不含 IP，请按需选择</span>
-                </template>
-                <div class="ip-grid">
-                  <!-- "不购买独立 IP" 选项卡（仅 NAT 商品显示，默认选中） -->
-                  <button
-                    v-if="isNatProduct"
-                    type="button"
-                    class="ip-card ip-card-none"
-                    :class="{ active: form.ipType === null }"
-                    @click="selectIpType(null)"
-                  >
-                    <div class="ip-card-head">
-                      <span class="ip-label">不购买独立 IP</span>
-                      <span class="ip-free-tag ip-tag-none">使用 NAT</span>
-                    </div>
-                    <div class="ip-price font-display">
-                      <span class="ip-price-current">¥0.00</span>
-                      <span class="ip-unit">使用共享 IP</span>
-                    </div>
-                  </button>
-                  <button
-                    v-for="opt in ipOptions"
-                    :key="opt.type || 'default'"
-                    type="button"
-                    class="ip-card"
-                    :class="{ active: form.ipType === opt.type }"
-                    @click="selectIpType(opt.type)"
-                  >
-                    <div class="ip-card-head">
-                      <span class="ip-label">{{ opt.label }}</span>
-                      <span v-if="opt.isFree" class="ip-free-tag">免费</span>
-                    </div>
-                    <div class="ip-price font-display">
-                      <span v-if="opt.isFree">¥0.00</span>
-                      <template v-else>
-                        <span class="ip-price-current">+¥{{ opt.price.toFixed(2) }}<span class="ip-unit">/月</span></span>
-                        <span v-if="opt.hasDiscount" class="ip-price-original">
-                          <span class="price-strike">¥{{ opt.originalPrice.toFixed(2) }}</span>
-                          <span class="price-off-tag">{{ Math.round((1 - opt.price / opt.originalPrice) * 100) }}% OFF</span>
-                        </span>
-                      </template>
-                    </div>
-                  </button>
-                </div>
-              </el-form-item>
-
-              <!-- NAT 共享 IP 提示 -->
-              <el-form-item v-if="isNatProduct && form.ipType === null">
-                <div class="nat-notice">
-                  <span class="nat-notice-icon">i</span>
-                  <div class="nat-notice-text">
-                    <strong>NAT 共享 IP 商品</strong>
-                    <p>本套餐为 NAT 共享 IP，默认使用共享 IP（无需额外购买独立 IP）。共享 IP 端口映射可在实例开通后于控制台配置。如需独立 IP，可在上方选择购买。</p>
-                  </div>
-                </div>
-              </el-form-item>
-
               <!-- IP 数量（上限 5） -->
               <el-form-item v-if="ipOptions.length && currentIpMonthly > 0" prop="ipCount">
                 <template #label>
@@ -1879,9 +1879,9 @@ onMounted(() => {
 
 .body-grid {
   display: grid;
-  // 左侧承载「规格表 + 配置面板」（内容较多），右侧仅「购买面板」（紧凑）
-  // 故左侧给更宽空间，避免右侧空荡；右侧 sticky 跟随滚动
-  grid-template-columns: 1.5fr 1fr;
+  // 左右更均衡分配：左侧规格+配置+时长+IP（含主选择项），右侧购买面板（数量+优惠券+价格+按钮）
+  // 右侧 sticky 跟随滚动，所有屏幕尺寸均保持 sticky
+  grid-template-columns: 1.2fr 1fr;
   gap: 32px;
   align-items: start;
 
@@ -1930,9 +1930,19 @@ onMounted(() => {
 .buy-panel {
   position: sticky;
   top: 88px;
+  // 所有屏幕尺寸均保持 sticky，确保购买按钮始终可见
+  // 适配屏幕高度：内容过长时内部滚动，避免溢出视口
+  max-height: calc(100vh - 104px);
+  overflow-y: auto;
 
   @include tablet-down {
-    position: static;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+  }
+
+  @include mobile {
+    top: 12px;
+    max-height: calc(100vh - 24px);
   }
 }
 

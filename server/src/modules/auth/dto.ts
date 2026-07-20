@@ -12,6 +12,13 @@ export class RegisterDto {
   @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式错误' })
   phone: string;
 
+  // 登录用户名：仅允许英文+数字或纯数字，3-16 位，不能包含中文和特殊字符
+  @IsString()
+  @MinLength(3, { message: '用户名至少 3 位' })
+  @MaxLength(16, { message: '用户名最多 16 位' })
+  @Matches(/^[a-zA-Z0-9]+$/, { message: '用户名只能包含英文和数字' })
+  username: string;
+
   @IsString()
   @MinLength(8, { message: '密码至少 8 位' })
   @MaxLength(32)
@@ -42,9 +49,11 @@ export class RegisterDto {
 }
 
 export class LoginDto {
+  // 登录账号：可以是手机号或用户名
   @IsString()
-  @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式错误' })
-  phone: string;
+  @MinLength(3, { message: '请输入登录账号' })
+  @MaxLength(32)
+  account: string;
 
   @IsString()
   @MinLength(1)

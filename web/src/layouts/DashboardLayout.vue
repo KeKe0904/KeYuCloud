@@ -264,6 +264,11 @@ function goNotifications() {
   box-shadow: var(--glass-shadow);
   transition: width 0.25s var(--ease-out-expo);
   flex-shrink: 0;
+  // 侧边栏固定：随主区域滚动始终保持在视口内
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 
   &.collapsed {
     width: 64px;

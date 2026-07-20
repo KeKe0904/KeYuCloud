@@ -14,6 +14,8 @@ datasource db {
 
 model User {
   id              Int      @id @default(autoincrement())
+  uid             Int      @unique                                           // 六位数用户ID（100001 起递增，用户可见）
+  username        String?  @unique                                           // 登录用户名（英文+数字或纯数字，3-16位）
   phone           String   @unique
   email           String?  @unique
   passwordHash    String
@@ -27,9 +29,9 @@ model User {
   inviteCode      String   @unique @default(uuid())
   invitedBy       Int?                                                       // 邀请人 user.id
   inviteCount     Int      @default(0)
-  
+
   // 雨云 panel_user 同步
-  panelUserName   String?  @unique                                           // pu_{user_id}
+  panelUserName   String?  @unique                                           // 用户填写的 username（与登录用户名同步）
   panelUserStatus String   @default("PENDING")                               // PENDING/CREATED/FAILED
   panelUserSyncedAt DateTime?
   

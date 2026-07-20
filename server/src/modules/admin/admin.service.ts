@@ -419,7 +419,13 @@ export class AdminService {
         { phone: { contains: query.keyword } },
         { email: { contains: query.keyword } },
         { nickname: { contains: query.keyword } },
-      ];
+        { username: { contains: query.keyword } },
+        { uid: { equals: Number(query.keyword) || undefined } },
+      ].filter((c: any) => {
+        // 过滤掉 uid equals undefined 的条件
+        if (c.uid && c.uid.equals === undefined) return false;
+        return true;
+      });
     }
 
     // 排序
@@ -438,6 +444,8 @@ export class AdminService {
         take: pageSize,
         select: {
           id: true,
+          uid: true,
+          username: true,
           phone: true,
           email: true,
           nickname: true,
@@ -617,7 +625,7 @@ export class AdminService {
     if (!user) throw new NotFoundException('用户不存在');
 
     // 雨云 API 不允许 name 含下划线，仅允许字母数字（3-16 字符）
-    const panelUserName = user.panelUserName || `pu${user.id}`;
+    const panelUserName = user.panelUserName || user.username || `user${user.id}`;
     const panelPassword = `Reset${Date.now().toString(36)}!`;
 
     try {

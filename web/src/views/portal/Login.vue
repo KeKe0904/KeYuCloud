@@ -18,18 +18,19 @@ const showPassword = ref(false);
 
 // 表单数据
 const form = reactive({
-  phone: '',
+  account: '',
   password: '',
   remember: false,
 });
 
 // 校验规则
 const rules: FormRules = {
-  phone: [
-    { required: true, message: '请输入手机号', trigger: 'blur' },
+  account: [
+    { required: true, message: '请输入手机号或用户名', trigger: 'blur' },
     {
-      pattern: /^1[3-9]\d{9}$/,
-      message: '请输入正确的手机号',
+      min: 3,
+      max: 32,
+      message: '账号长度需在 3~32 位之间',
       trigger: 'blur',
     },
   ],
@@ -62,7 +63,7 @@ async function handleSubmit() {
     loading.value = true;
     try {
       const res = await authApi.login({
-        phone: form.phone.trim(),
+        account: form.account.trim(),
         password: form.password,
       });
       if (res.success) {
@@ -70,11 +71,11 @@ async function handleSubmit() {
         auth.setToken(token);
         // 直接设置用户信息，避免再发一次 profile 请求
         auth.user = user;
-        // 记住我：将手机号存入 localStorage
+        // 记住我：将账号存入 localStorage
         if (form.remember) {
-          localStorage.setItem('rememberPhone', form.phone);
+          localStorage.setItem('rememberAccount', form.account);
         } else {
-          localStorage.removeItem('rememberPhone');
+          localStorage.removeItem('rememberAccount');
         }
         ElMessage.success('登录成功，欢迎回来');
         // 跳转 redirect 或 /dashboard
@@ -90,10 +91,10 @@ async function handleSubmit() {
 }
 
 onMounted(() => {
-  // 自动填充记住的手机号
-  const rememberedPhone = localStorage.getItem('rememberPhone');
-  if (rememberedPhone) {
-    form.phone = rememberedPhone;
+  // 自动填充记住的账号
+  const rememberedAccount = localStorage.getItem('rememberAccount');
+  if (rememberedAccount) {
+    form.account = rememberedAccount;
     form.remember = true;
   }
 });
@@ -139,14 +140,14 @@ onMounted(() => {
           class="auth-form"
           @keyup.enter="handleSubmit"
         >
-          <el-form-item prop="phone">
+          <el-form-item prop="account">
             <template #label>
-              <span class="field-label eyebrow">手机号</span>
+              <span class="field-label eyebrow">手机号 / 用户名</span>
             </template>
             <el-input
-              v-model="form.phone"
-              placeholder="请输入手机号"
-              maxlength="11"
+              v-model="form.account"
+              placeholder="请输入手机号或用户名"
+              maxlength="32"
               clearable
             />
           </el-form-item>
