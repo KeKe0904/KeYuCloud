@@ -111,6 +111,12 @@ export const adminApi = {
   updateSystemConfigs: (configs: Array<{ key: string; value: string }>) =>
     http.put('/admin/system/configs', { configs }),
 
+  // 系统管理（v1.1.0+）：环境信息 / 版本检查 / 强制更新 / 更新状态
+  envInfo: () => http.get('/admin/system/env-info'),
+  versionCheck: () => http.get('/admin/system/version-check'),
+  forceUpdate: () => http.post('/admin/system/force-update'),
+  updateStatus: () => http.get('/admin/system/update-status'),
+
   // 管理员管理
   admins: () => http.get('/admin/admins'),
   createAdmin: (data: any) => http.post('/admin/admins', data),
