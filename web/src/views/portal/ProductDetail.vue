@@ -333,6 +333,37 @@ const selectedAppsWithVars = computed<AppTemplate[]>(() => {
   );
 });
 
+// ===== 已选预装软件名称列表（用于"立即购买"板块的配置摘要展示） =====
+const selectedAppNames = computed<string>(() => {
+  if (!form.selectedAppIds.length) return '';
+  return filteredAppTemplates.value
+    .filter((a) => form.selectedAppIds.includes(a.app_id))
+    .map((a) => a.chinese_name || a.name)
+    .join('、');
+});
+
+// 已选预装软件数量（用于配置摘要徽标）
+const selectedAppCount = computed<number>(() => {
+  return filteredAppTemplates.value.filter((a) =>
+    form.selectedAppIds.includes(a.app_id),
+  ).length;
+});
+
+// 配置摘要展示项数（用于"已选配置"徽标，反映当前展示的配置项数量）
+const configSummaryCount = computed<number>(() => {
+  if (!product.value) return 0;
+  // 基础项始终展示：区域 / 配置 / 带宽 / 网络模式 / IP 类型 / 购买时长 = 6 项
+  let n = 6;
+  if (product.value.machine) n++;       // 处理器
+  if (product.value.traffic) n++;       // 流量
+  if (product.value.line) n++;          // 线路
+  if (product.value.chargeType) n++;    // 计费类型
+  if (currentOs.value) n++;             // 操作系统
+  if (selectedAppCount.value > 0) n++;  // 预装软件
+  if (form.addDiskSize > 0) n++;        // 系统盘扩容
+  return n;
+});
+
 // 判断某变量是否应该显示（基于 depend_var / depend_regex 联动）
 function shouldShowVar(app: AppTemplate, vDef: { depend_var?: string; depend_regex?: string }): boolean {
   if (!vDef.depend_var) return true;
@@ -452,14 +483,32 @@ function getOfficialPrice(duration: number): number | null {
   return v && !isNaN(Number(v)) ? Number(v) : null;
 }
 
-// 当前订单节省金额 = (官方机器价 - 本站机器价) × 数量（仅机器部分）
-const savedAmount = computed<number | null>(() => {
-  const official = getOfficialPrice(form.duration);
-  const sell = getMachinePriceForDuration(form.duration);
-  if (official === null || sell === null) return null;
-  const diff = official - sell;
-  return diff > 0 ? diff * form.quantity : null;
+// ===== 默认 IPv4 上游月价（用于"官方原价 = 机器原价 + 默认IP原价"计算） =====
+// 雨云 ip_prices 中 key="" 表示默认 IPv4（即标准独立 IP）。
+// 若商品未在售任何独立 IP（如纯 NAT 套餐），则默认 IP 原价为 0。
+const defaultIpUpstreamMonthly = computed<number>(() => {
+  if (!product.value) return 0;
+  let upstreamIpPrices: any = (product.value as any).upstreamIpPrices;
+  if (typeof upstreamIpPrices === 'string') {
+    try { upstreamIpPrices = JSON.parse(upstreamIpPrices || '{}'); } catch { upstreamIpPrices = {}; }
+  }
+  if (!upstreamIpPrices || typeof upstreamIpPrices !== 'object') return 0;
+  // 优先用 defaultIpType 字段（通常为空串=默认IPv4），否则回退到 ""key
+  const defaultType = (product.value as any).defaultIpType ?? '';
+  return Number(upstreamIpPrices[defaultType] ?? upstreamIpPrices[''] ?? 0);
 });
+
+// 官方原价总额（机器原价 + 默认 IPv4 原价，按所选时长计算，不含数量）
+// 机器原价已含周期折扣（upstreamPriceMap[duration]）；默认 IPv4 原价 = 月价 × 时长 × 周期折扣
+function getOfficialTotalPrice(duration: number): number | null {
+  const machine = getOfficialPrice(duration);
+  if (machine === null) return null;
+  const discount = DURATION_DISCOUNT_MAP[duration] ?? 1.0;
+  const ipTotal = defaultIpUpstreamMonthly.value > 0
+    ? Math.round(defaultIpUpstreamMonthly.value * duration * discount * 100) / 100
+    : 0;
+  return Math.round((machine + ipTotal) * 100) / 100;
+}
 
 // 当前时长单价（机器部分，不含 IP）— 兼容旧字段名
 const currentUnitPrice = computed<number | null>(() => {
@@ -535,6 +584,14 @@ const upstreamTotalPrice = computed<number | null>(() => {
   return (
     Math.round((upstreamMachineSubtotal + upstreamIpSubtotal + upstreamDiskSubtotal) * 100) / 100
   );
+});
+
+// 当前订单节省金额 = 上游原价总额 - 本站售价总额（含机器 + IP + 系统盘扩容）
+// 与"官方原价 = 机器原价 + 默认 IPv4 原价"保持口径一致，体现综合优惠
+const savedAmount = computed<number | null>(() => {
+  if (upstreamTotalPrice.value === null || totalPrice.value === null) return null;
+  const diff = upstreamTotalPrice.value - totalPrice.value;
+  return diff > 0 ? Math.round(diff * 100) / 100 : null;
 });
 
 // 表单校验规则
@@ -1327,6 +1384,79 @@ onMounted(() => {
             </div>
             <DecorLine variant="gradient" width="100%" />
 
+            <!-- 已选配置摘要：反馈用户在左侧配置界面所选的全部信息 -->
+            <div class="config-summary" v-if="product">
+              <div class="config-summary-head">
+                <span class="config-summary-title">已选配置</span>
+                <span class="config-summary-badge">{{ configSummaryCount }} 项</span>
+              </div>
+              <div class="config-summary-grid">
+                <div class="config-item">
+                  <span class="config-item-label">区域</span>
+                  <span class="config-item-value">
+                    {{ product.zoneName || NET_ZONE_LABELS[product.zone] || product.zone || '—' }}
+                  </span>
+                </div>
+                <div class="config-item" v-if="product.machine">
+                  <span class="config-item-label">处理器</span>
+                  <span class="config-item-value">{{ MACHINE_LABELS[product.machine] || product.machine }}</span>
+                </div>
+                <div class="config-item">
+                  <span class="config-item-label">配置</span>
+                  <span class="config-item-value font-mono">
+                    {{ product.cpu }} 核 / {{ product.memory }} GB / {{ product.disk }} GB
+                  </span>
+                </div>
+                <div class="config-item">
+                  <span class="config-item-label">带宽</span>
+                  <span class="config-item-value font-mono">{{ product.bandwidth }} Mbps</span>
+                </div>
+                <div class="config-item" v-if="product.traffic">
+                  <span class="config-item-label">流量</span>
+                  <span class="config-item-value font-mono">
+                    {{ product.traffic === 0 ? '不限' : product.traffic + ' GB/月' }}
+                  </span>
+                </div>
+                <div class="config-item" v-if="product.line">
+                  <span class="config-item-label">线路</span>
+                  <span class="config-item-value">{{ LINE_LABELS[product.line] || product.line }}</span>
+                </div>
+                <div class="config-item" v-if="product.chargeType">
+                  <span class="config-item-label">计费类型</span>
+                  <span class="config-item-value">{{ CHARGE_TYPE_LABELS[product.chargeType] || product.chargeType }}</span>
+                </div>
+                <div class="config-item">
+                  <span class="config-item-label">网络模式</span>
+                  <span class="config-item-value">{{ isNatProduct ? 'NAT 共享 IP' : '独立 IP' }}</span>
+                </div>
+                <div class="config-item">
+                  <span class="config-item-label">IP 类型</span>
+                  <span class="config-item-value" v-if="form.ipType !== null">
+                    {{ getIpTypeLabel(form.ipType) }} × {{ form.ipCount }}
+                  </span>
+                  <span class="config-item-value muted" v-else>NAT 共享（未购独立 IP）</span>
+                </div>
+                <div class="config-item" v-if="currentOs">
+                  <span class="config-item-label">操作系统</span>
+                  <span class="config-item-value">{{ currentOs.chinese_name || currentOs.name }}</span>
+                </div>
+                <div class="config-item" v-if="selectedAppCount > 0">
+                  <span class="config-item-label">预装软件</span>
+                  <span class="config-item-value">{{ selectedAppNames }}</span>
+                </div>
+                <div class="config-item" v-if="form.addDiskSize > 0">
+                  <span class="config-item-label">系统盘扩容</span>
+                  <span class="config-item-value font-mono">
+                    +{{ form.addDiskSize }} GB（{{ DISK_TYPE_LABELS[form.diskType] || form.diskType }}）
+                  </span>
+                </div>
+                <div class="config-item">
+                  <span class="config-item-label">购买时长</span>
+                  <span class="config-item-value">{{ form.duration }} 个月</span>
+                </div>
+              </div>
+            </div>
+
             <el-form
               ref="formRef"
               :model="form"
@@ -1377,11 +1507,14 @@ onMounted(() => {
 
               <!-- 价格汇总 -->
               <div class="price-summary">
-                <!-- 官方原价（直接显示总价，去掉"机器"字样） -->
+                <!-- 官方原价（机器原价 + 默认 IPv4 原价）× 数量 -->
                 <div class="summary-row">
-                  <span class="summary-label">官方原价</span>
-                  <span class="summary-value font-mono" v-if="getOfficialPrice(form.duration) !== null">
-                    {{ formatPrice(getOfficialPrice(form.duration)!) }}
+                  <span class="summary-label">
+                    官方原价
+                    <span class="summary-sub-label" v-if="defaultIpUpstreamMonthly > 0">含默认 IPv4</span>
+                  </span>
+                  <span class="summary-value font-mono" v-if="getOfficialTotalPrice(form.duration) !== null">
+                    {{ formatPrice(getOfficialTotalPrice(form.duration)!) }}
                     <span class="summary-sub">× {{ form.quantity }}</span>
                   </span>
                   <span class="summary-value font-mono" v-else>—</span>
@@ -1475,7 +1608,7 @@ onMounted(() => {
 
               <div class="buy-tips">
                 <span class="tips-dot"></span>
-                <span>下单后请在 30 分钟内完成支付，超时订单自动取消</span>
+                <span>下单后可在「订单中心」查看，未支付订单支持手动取消</span>
               </div>
             </el-form>
           </div>
@@ -1489,12 +1622,13 @@ onMounted(() => {
             <el-tab-pane label="商品说明">
               <div class="tab-content">
                 <h3 class="tab-title font-display">商品说明</h3>
-                <p class="tab-paragraph">{{ product.description || '本套餐为 RainYun 上游资源，由本平台提供销售与售后服务支持。所有产品均使用企业级硬件，BGP 多线接入，确保您的业务稳定运行。' }}</p>
+                <p class="tab-paragraph">{{ product.description || '本套餐为雨云（RainYun）上游 RCS 云服务器资源，由本平台提供销售与售后服务支持。基于 KVM 虚拟化技术，采用企业级硬件与多线 BGP 接入，保障业务稳定运行。' }}</p>
                 <ul class="info-list">
-                  <li>所有套餐均使用 NVMe SSD 系统盘，IOPS 表现优异</li>
-                  <li>带宽为独享带宽，不与他人共享，保障传输速率</li>
-                  <li>支持 IPv4/IPv6 双栈（部分机房），可在控制台切换</li>
-                  <li>提供完整控制面板：开关机、重启、重装、快照、流量监控</li>
+                  <li>系统盘支持高效云盘 HDD 与 SSD 云盘多种类型，可弹性扩容</li>
+                  <li>带宽上下行独立标注，上传/下载速率明确，按套餐规格保障</li>
+                  <li>支持 IPv4 / IPv6 多种公网 IP 类型，可在购买时按需选购</li>
+                  <li>提供图形化控制面板：开关机、重启、重装系统、备份/还原、流量监控</li>
+                  <li>基于 KVM 虚拟化，支持 Windows 与各主流 Linux 发行版</li>
                 </ul>
               </div>
             </el-tab-pane>
@@ -1503,11 +1637,11 @@ onMounted(() => {
               <div class="tab-content">
                 <h3 class="tab-title font-display">退款政策</h3>
                 <ul class="info-list">
-                  <li>购买后 24 小时内可申请无理由退款，按已使用时长折算退还</li>
-                  <li>超过 24 小时未申请退款，将不再支持无理由退款</li>
-                  <li>因违反平台服务条款被下架的实例，不予退款</li>
-                  <li>优惠活动套餐按活动规则执行退款政策</li>
-                  <li>退款金额将原路返回至账户余额，可在用户中心查看</li>
+                  <li>遵循上游七天无理由退订政策，每位用户共 3 次自助退订机会</li>
+                  <li>超过 7 天、已领取消费积分或试用后续费的实例，不再支持无理由退订</li>
+                  <li>日付、流量包、IP 增加、硬盘/套餐升级等非月付场景不支持退订</li>
+                  <li>因违反服务条款被下架的实例，不予退款</li>
+                  <li>退款金额将退至账户余额，新购场景的优惠券将自动退回</li>
                 </ul>
               </div>
             </el-tab-pane>
@@ -2359,6 +2493,88 @@ onMounted(() => {
 .price-summary {
   margin: 8px 0 20px;
   padding: 16px 0;
+}
+
+// ============ 已选配置摘要 ============
+.config-summary {
+  margin: 16px 0 8px;
+  padding: 14px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-base);
+  border-radius: 8px;
+}
+
+.config-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--border-base);
+}
+
+.config-summary-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-gold);
+  letter-spacing: 0.04em;
+}
+
+.config-summary-badge {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 2px 8px;
+  border: 1px solid var(--border-base);
+  border-radius: 10px;
+  background: var(--bg-base);
+  font-variant-numeric: tabular-nums;
+}
+
+.config-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+
+  @include mobile {
+    grid-template-columns: 1fr;
+    gap: 6px 0;
+  }
+}
+
+.config-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.config-item-label {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+
+  &::after {
+    content: '·';
+    margin-left: 4px;
+    color: var(--text-tertiary);
+  }
+}
+
+.config-item-value {
+  flex: 1 1 auto;
+  color: var(--text-primary);
+  word-break: break-all;
+  min-width: 0;
+
+  &.muted {
+    color: var(--text-tertiary);
+  }
+
+  &.font-mono {
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 // ============ 系统盘扩容 ============
