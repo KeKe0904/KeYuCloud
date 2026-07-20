@@ -399,8 +399,14 @@ export class RainyunService implements OnModuleInit {
       ipv4: rcs.MainIPv4 || '',
       int_ipv4: rcs.IntIPv4 || '',
       ipv6: '', // 雨云未直接返回主 IPv6，可通过 EIPList 获取
-      zone: rcs.Zone || '',
-      zone_name: rcs.Zone || '',
+      // zone: 雨云 rcs.Zone 字段值如「宿迁4网」（节点线路组合名），不是标准 region code
+      //       优先用 plan.region / node.Region（标准 region code，如 cn-sq1）
+      zone: plan.region || node.Region || rcs.Zone || '',
+      // zone_name: 用 REGION_NAME_MAP 映射 region code 到友好中文名（如「江苏宿迁」）
+      //            不用 rcs.Zone（「宿迁4网」）或 node.ChineseName（「宿迁云服务器节点16」）
+      zone_name: RainyunService.REGION_NAME_MAP[plan.region || node.Region || ''] ||
+        RainyunService.REGION_NAME_MAP[String(plan.region || node.Region || '').toLowerCase()] ||
+        rcs.Zone || '',
       nat_public_ip: rcs.NatPublicIP || '',
       nat_public_domain: rcs.NatPublicDomain || '',
       net_mode: rcs.NetMode || '',

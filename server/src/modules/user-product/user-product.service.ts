@@ -405,7 +405,9 @@ export class UserProductService {
         upstreamRcsName: rcs.host_name || rcs.name || existing?.upstreamRcsName || `rcs-${rcsId}`,
         panelUserName: user.panelUserName,
         zone: rcs.region || rcs.zone || null,
-        zoneName: rcs.node_name || rcs.region || rcs.zone_name || null,
+        // zoneName: 优先用 mapRcsInstance 映射后的 zone_name（友好中文名，如「江苏宿迁」）
+        //           不用 node_name（节点名，如「宿迁云服务器节点16」）
+        zoneName: rcs.zone_name || rcs.region || rcs.node_name || null,
         osId: rcs.os_id ? Number(rcs.os_id) : null,
         osName: rcs.os_name || null,
         cpu: rcs.cpu ? Number(rcs.cpu) : null,
