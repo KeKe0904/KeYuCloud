@@ -182,15 +182,66 @@ export class UserProductService {
     return { total: list.length, updated, failed };
   }
 
-  // ===== 6.1 获取续费价格（透传雨云 GET /product/rcs/{id}/renew/） =====
-  // 返回 { prices: { '1': x, '3': y, '6': z, '12': w } }（单位：元，对应月数）
+  // ===== 6.1 获取续费价格 =====
+  // 返回 { '1': x, '3': y, '6': z, '12': w }（单位：元，对应月数）
+  // 价格来源优先级：
+  //   1. Product 表的 prices 字段（购买时按 markupRate 计算好的售价快照）
+  //   2. 雨云 API GET /product/rcs/{id}/renew/ 返回的月价（{prices:{Price:x}}），
+  //      基于折扣规则（1月原价/3月9折/6月8折/12月7折）+ Product.markupRate 计算
+  //   3. 兜底：固定月价 10 元线性计算
   async getRenewPrice(userProductId: number, userId: number) {
     const up = await this.getProduct(userProductId, userId);
     if (!up.upstreamRcsId) throw new BizError('产品未关联上游 RCS');
+
+    // 1. 优先使用 Product 表的 prices 字段（购买时售价快照）
+    const product = (up as any).product;
+    if (product?.prices) {
+      try {
+        const prices = typeof product.prices === 'string'
+          ? JSON.parse(product.prices)
+          : product.prices;
+        if (prices && (prices['1'] || prices[1])) {
+          return prices;
+        }
+      } catch {
+        // JSON 解析失败，fallback
+      }
+    }
+
+    // 2. 调雨云 API 获取月价，基于折扣规则计算
     const triggeredBy = `user_id:${userId}`;
-    const res: any = await this.rainyun.getRcsRenewPrice(up.upstreamRcsId, triggeredBy);
-    // 雨云返回 { prices: {'1':..,'3':..,'6':..,'12':..} }
-    return res?.prices ?? res ?? null;
+    let monthlyPrice = 0;
+    try {
+      const res: any = await this.rainyun.getRcsRenewPrice(up.upstreamRcsId, triggeredBy);
+      // 雨云返回格式：{ prices: { Price: 35 } }（Price 为上游月价）
+      const rawPrices = res?.prices ?? res;
+      if (rawPrices && rawPrices.Price != null) {
+        monthlyPrice = Number(rawPrices.Price);
+      } else if (rawPrices && rawPrices.price != null) {
+        monthlyPrice = Number(rawPrices.price);
+      } else if (rawPrices && (rawPrices['1'] || rawPrices[1])) {
+        // 兼容：如果雨云已返回各时长价格，直接使用
+        return rawPrices;
+      }
+    } catch {
+      // 雨云 API 失败，使用兜底价格
+      monthlyPrice = 10;
+    }
+
+    if (!monthlyPrice || monthlyPrice <= 0) monthlyPrice = 10;
+
+    // 应用 markupRate（优惠率：负=优惠 / 0=原价 / 正=加价）
+    const markupRate = product?.markupRate != null ? Number(product.markupRate) : 0;
+    const rate = 1 + markupRate;
+    const sellMonthly = Math.round(monthlyPrice * rate * 100) / 100;
+
+    // 折扣规则：1月原价 / 3月9折 / 6月8折 / 12月7折（与购买页一致）
+    return {
+      '1': sellMonthly,
+      '3': Math.round(sellMonthly * 3 * 0.9 * 100) / 100,
+      '6': Math.round(sellMonthly * 6 * 0.8 * 100) / 100,
+      '12': Math.round(sellMonthly * 12 * 0.7 * 100) / 100,
+    };
   }
 
   // ===== 7. 续费：调雨云 rcsAction(id, 'renew', {duration: months})，更新本地 expireAt =====
