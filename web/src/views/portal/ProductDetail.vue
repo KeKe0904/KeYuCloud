@@ -194,17 +194,23 @@ const isNatProduct = computed<boolean>(() => {
   return (product.value as any)?.netMode === 'nat';
 });
 
-// 库存显示文本：0=充足 / >0=剩余 N 台
+// 库存显示文本
+// 注：雨云 plans API 的 available_stock 不等于实际可开台数，
+//     真实可开性由 plan_id + zone + machine + line + os_id 组合决定，
+//     所以不显示具体数字，避免误导用户。
+//     - stock=0：可能是无限库存或停售，统一显示「以下单为准」
+//     - stock>0：表示有可选组合，显示「库存充足」
+//     - 最终能否开以下单时雨云上游校验为准
 const stockText = computed<string>(() => {
   const stock = Number((product.value as any)?.availableStock ?? 0);
-  if (!stock || stock <= 0) return '充足';
-  return `剩余 ${stock} 台`;
+  if (stock > 0) return '充足';
+  return '以下单为准';
 });
 
-// 库存是否紧张（<= 10 台）
+// 库存是否紧张（保留兼容，但当前不再触发硬性阻断）
 const isStockLow = computed<boolean>(() => {
   const stock = Number((product.value as any)?.availableStock ?? 0);
-  return stock > 0 && stock <= 10;
+  return stock > 0 && stock <= 5;
 });
 
 // 当前选中的 IP 月价（优惠后）
@@ -814,17 +820,14 @@ async function handleBuy() {
     if (!valid) return;
     submitting.value = true;
     try {
-      // 下单前刷新库存（实时校验，避免本地快照过期）
-      // 仅当本地库存 >0（有限库存）时才刷新，无限库存（0）跳过
+      // 下单前刷新本地库存快照（仅用于前端展示更新，不阻断下单）
+      // 注：雨云 plans API 的 available_stock 不代表实际可开台数，
+      //     真实可开性由 plan_id + zone + machine + line + os_id 组合决定，
+      //     所以此处不再基于 available_stock 阻断下单，
+      //     最终以下单时雨云上游 POST /product/rcs/ 的校验结果为准。
       const localStockBeforeSubmit = Number((product.value as any)?.availableStock ?? 0);
       if (localStockBeforeSubmit > 0 && localStockBeforeSubmit <= 10) {
         await refreshStock();
-        const newStock = Number((product.value as any)?.availableStock ?? 0);
-        if (newStock > 0 && newStock < form.quantity) {
-          ElMessage.error(`库存不足，当前剩余 ${newStock} 台，您选择了 ${form.quantity} 台`);
-          submitting.value = false;
-          return;
-        }
       }
       // 将选中的 app_id 数组转为 appVars 对象数组
       // 每个应用的 vars 从 form.appVars 中按 `${appId}:${varName}` 取值

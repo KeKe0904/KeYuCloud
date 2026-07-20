@@ -68,32 +68,26 @@ export class OrderService {
     const quantity = dto.quantity ?? 1;
     if (quantity < 1) throw new BadRequestException('数量必须大于 0');
 
-    // ===== 库存实时校验 =====
-    // availableStock: 0=无限库存 / >0=剩余可开数量
-    // 仅当本地快照显示库存紧张（>0 且 <= 数量+5）时才调上游实时查询，
-    // 避免每次下单都调雨云 plans 接口（性能优化）
-    // 注：即使本地为 0（无限），也允许下单（雨云上游最终会校验）
+    // ===== 库存校验说明 =====
+    // 雨云 plans API 的 available_stock 字段并不代表实际可开台数，
+    // 真实可开性由 plan_id + zone + machine + line + os_id 组合决定，
+    // 所以下单时不基于 available_stock 做硬性拒绝，最终由雨云上游在
+    // POST /product/rcs/ 时做权威校验（错误码 70001=区域/机型组合缺货）。
+    //
+    // 本地 availableStock 仅作为前端展示用途，下单时只做以下处理：
+    //   1. 商品已下架（isOnSale=false）→ 直接拒绝（上面已校验）
+    //   2. 异步刷新本地快照（不阻断下单）
     const localStock = Number(product.availableStock ?? 0);
-    if (localStock > 0 && localStock < quantity) {
-      // 本地快照显示库存不足，直接拒绝（避免无效下单）
-      throw new BadRequestException(
-        `库存不足，当前剩余 ${localStock} 台，您选择了 ${quantity} 台`,
-      );
-    }
-    // 库存紧张时（<=10 台）实时校验上游，避免超卖
     if (localStock > 0 && localStock <= 10) {
+      // 本地快照显示库存紧张时，异步刷新本地快照（不阻断下单）
+      // 注：雨云 plans API 的 available_stock 不能用于判断能否下单，
+      //     所以这里不再做硬性拒绝，只更新本地快照供前端展示
       try {
         const realtime: any = await this.productService.getRealtimeStock(product.id);
-        const upstreamStock = Number(realtime?.availableStock ?? 0);
         if (realtime?.upstreamAvailable === false) {
           throw new BadRequestException('商品已下架（上游套餐不存在）');
         }
-        if (upstreamStock > 0 && upstreamStock < quantity) {
-          throw new BadRequestException(
-            `库存不足，雨云上游剩余 ${upstreamStock} 台，您选择了 ${quantity} 台`,
-          );
-        }
-        // 实时校验通过后，更新本地快照
+        const upstreamStock = Number(realtime?.availableStock ?? 0);
         if (upstreamStock !== localStock) {
           await this.prisma.product.update({
             where: { id: product.id },
@@ -101,10 +95,10 @@ export class OrderService {
           }).catch(() => {});
         }
       } catch (e: any) {
-        // 实时校验失败时：若错误是业务异常（库存不足/下架），直接抛出
+        // 实时校验失败时：若错误是业务异常（下架），直接抛出
         if (e instanceof BadRequestException) throw e;
         // 网络/上游异常 → 仅记录日志，不阻断下单（让雨云最终校验）
-        this.logger.warn(`下单前实时校验库存失败（不阻断下单）: ${e.message}`);
+        this.logger.warn(`下单前刷新本地库存快照失败（不阻断下单）: ${e.message}`);
       }
     }
 
@@ -657,11 +651,16 @@ export class OrderService {
       this.logger.error(`订单 ${order.orderNo} 开通失败: ${rawErr}`);
 
       // 错误分类，给出更友好的中文提示
+      // 注：雨云错误码 70001 = 区域/机型库存不足（并非"套餐被抢光"）
+      //   plans API 的 available_stock 字段不等于实际可开台数，
+      //   真实可开性由 plan_id + zone + machine + line + os_id 组合决定，
+      //   所以下单时雨云上游会做最终校验。
       let userFriendlyMsg = rawErr;
       if (/余额不足|余额|balance|insufficient|Money/i.test(rawErr)) {
         userFriendlyMsg = '雨云账户余额不足，请联系管理员充值';
-      } else if (/库存不足|库存|stock|out of stock/i.test(rawErr)) {
-        userFriendlyMsg = '库存不足，该套餐已被抢光，请选择其他套餐或稍后再试';
+      } else if (/区域.*机型.*库存|区域\/机型库存不足|70001/i.test(rawErr)) {
+        // 雨云错误码 70001：当前所选区域/机型组合缺货
+        userFriendlyMsg = '当前所选区域/机型组合暂时缺货，请尝试其他区域、机型或稍后再试';
       } else if (/套餐不存在|plan.*not.*found|套餐已下架/i.test(rawErr)) {
         userFriendlyMsg = '套餐已下架，请选择其他套餐';
       } else if (/参数错误|invalid.*param|参数不/i.test(rawErr)) {
