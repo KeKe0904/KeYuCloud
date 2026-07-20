@@ -3,10 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Public } from './common/decorators/public.decorator';
+import { RainyunService } from './modules/rainyun/rainyun.service';
 
 @Controller()
 export class AppController {
-  constructor(private config: ConfigService) {}
+  constructor(
+    private config: ConfigService,
+    private rainyun: RainyunService,
+  ) {}
 
   // 版本号统一从 package.json 读取，避免多处硬编码不一致
   private getAppVersion(): string {
@@ -29,7 +33,9 @@ export class AppController {
   @Public()
   @Get('api/health')
   health() {
-    const mock = this.config.get('RAINYUN_MOCK') === 'true' || !this.config.get('RAINYUN_API_KEY');
+    // 优先使用 RainyunService 运行时实际模式（已从数据库加载覆盖环境变量）
+    // 兜底：若运行时尚未初始化完成，则按环境变量判断
+    const mock = this.rainyun.isMockMode();
     // 仅暴露最小必要信息，避免泄露站点配置（siteName、域名等）
     return {
       status: 'ok',
