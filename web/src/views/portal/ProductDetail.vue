@@ -1677,12 +1677,14 @@ onMounted(() => {
 .product-detail-page {
   min-height: 60vh;
   max-width: 100%;
-  overflow-x: hidden;
+  // 注：不要使用 overflow-x: hidden，因为它会将 overflow-y 隐式设为 auto，
+  //     从而建立新的滚动容器并破坏子元素 position: sticky 的视口定位。
+  //     改为通过子元素自身的 max-width: 100% 和 word-break 控制横向溢出。
 }
 
 // ============ 容器 ============
 .container {
-  max-width: 1180px;
+  max-width: 1320px;
   margin: 0 auto;
   padding: 0 24px;
 
@@ -2015,9 +2017,15 @@ onMounted(() => {
   display: grid;
   // 左右更均衡分配：左侧规格+配置+时长+IP（含主选择项），右侧购买面板（数量+优惠券+价格+按钮）
   // 右侧 sticky 跟随滚动，所有屏幕尺寸均保持 sticky
-  grid-template-columns: 1.2fr 1fr;
-  gap: 32px;
+  // 大屏给左侧配置区更宽松的空间（1.4fr），右侧购买面板适当收窄（1fr，最大 420px）
+  grid-template-columns: 1.4fr minmax(360px, 1fr);
+  gap: 40px;
   align-items: start;
+
+  @include lg-down {
+    grid-template-columns: 1.2fr 1fr;
+    gap: 32px;
+  }
 
   @include tablet-down {
     grid-template-columns: 1fr;
@@ -2062,21 +2070,35 @@ onMounted(() => {
 }
 
 .buy-panel {
+  // 粘性定位：右侧购买面板随屏幕滚动固定在视口内
+  // 大屏（>=992px）启用 sticky，左侧配置区滚动时右侧面板始终可见
+  // 高度策略：限制为视口高度 - 顶部偏移，内部滚动，确保购买按钮始终可达
+  //   - 面板内容较短：自然显示，无滚动条
+  //   - 面板内容超过视口：内部滚动，但面板整体固定在 top: 88px
   position: sticky;
   top: 88px;
-  // 所有屏幕尺寸均保持 sticky，确保购买按钮始终可见
-  // 适配屏幕高度：内容过长时内部滚动，避免溢出视口
   max-height: calc(100vh - 104px);
   overflow-y: auto;
+  // 美化内部滚动条（仅 WebKit）
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-base) transparent;
 
-  @include tablet-down {
-    top: 16px;
-    max-height: calc(100vh - 32px);
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--border-base);
+    border-radius: 3px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
   }
 
-  @include mobile {
-    top: 12px;
-    max-height: calc(100vh - 24px);
+  @include tablet-down {
+    // 平板及手机：取消 sticky，改为正常文档流（单列布局下 sticky 体验差）
+    position: static;
+    max-height: none;
+    overflow-y: visible;
   }
 }
 
@@ -3149,10 +3171,10 @@ onMounted(() => {
   }
 }
 
-// ============ 小桌面：保留双栏，缩小容器 ============
+// ============ 小桌面：保留双栏，适度收窄容器 ============
 @include lg-only {
   .container {
-    max-width: 1000px;
+    max-width: 1140px;
   }
 }
 </style>
