@@ -133,6 +133,8 @@ export class UserProductService {
     const newExpire = rcs.expire_at ? new Date(rcs.expire_at) : up.expireAt;
     const newIpv4 = rcs.ipv4 ?? up.ipv4;
     const newIpv6 = rcs.ipv6 ?? up.ipv6;
+    // memory 上游单位为 MB，本地统一 GB（与 syncUserProductsFromPanel 一致）
+    const newMemory = rcs.memory ? Math.round(Number(rcs.memory) / 1024) : up.memory;
 
     return this.prisma.userProduct.update({
       where: { id: userProductId },
@@ -141,6 +143,15 @@ export class UserProductService {
         expireAt: newExpire,
         ipv4: newIpv4,
         ipv6: newIpv6,
+        // 同步规格与区域字段（修复旧数据 zoneName 显示节点名的问题）
+        zone: rcs.zone || rcs.region || up.zone,
+        zoneName: rcs.zone_name || rcs.region || up.zoneName,
+        osName: rcs.os_name || up.osName,
+        cpu: rcs.cpu ? Number(rcs.cpu) : up.cpu,
+        memory: newMemory,
+        disk: rcs.disk ? Number(rcs.disk) : up.disk,
+        bandwidth: rcs.bandwidth ? Number(rcs.bandwidth) : up.bandwidth,
+        upstreamRcsName: rcs.host_name || up.upstreamRcsName,
         stateSyncedAt: new Date(),
       },
     });
